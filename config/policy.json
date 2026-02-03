@@ -1,0 +1,215 @@
+{
+  "$schema": "LobsterFoundry Policy v0.1.0",
+  "version": "0.1.0",
+  "updated_at": "2026-02-03T00:00:00Z",
+  "updated_by": "FOUNDERS",
+  
+  "founder_period": {
+    "active": true,
+    "founders": ["dre", "pax"],
+    "exit_criteria": {
+      "min_founding_settlers": 100,
+      "min_licensed_verifiers": 20,
+      "min_successful_audit_cycles": 3
+    }
+  },
+  
+  "mint_thresholds": {
+    "ORE": {
+      "required_stamps": 1,
+      "stamp_roles": ["QUALITY"],
+      "auto_checks": []
+    },
+    "IRON": {
+      "required_stamps": 3,
+      "stamp_roles": ["QUALITY", "EVIDENCE", "SAFETY"],
+      "auto_checks": ["no_plagiarism", "artifacts_valid"]
+    },
+    "STEEL": {
+      "required_stamps": 3,
+      "stamp_roles": ["QUALITY", "EVIDENCE", "SAFETY"],
+      "additional_requirements": ["tests_pass", "audit_sample_clear"],
+      "auto_checks": ["no_plagiarism", "artifacts_valid", "security_scan"]
+    }
+  },
+  
+  "mint_caps": {
+    "per_settler_per_cycle": {
+      "ORE": 10,
+      "IRON": 3,
+      "STEEL": 1
+    },
+    "global_per_cycle": {
+      "ORE": 1000,
+      "IRON": 300,
+      "STEEL": 50
+    }
+  },
+  
+  "payouts": {
+    "author_stipend": {
+      "ORE_submission": 5,
+      "IRON_submission": 10,
+      "STEEL_submission": 25
+    },
+    "verification": {
+      "QUALITY": {
+        "pay_cc": 25,
+        "stake_cc": 5,
+        "seal": "BRONZE"
+      },
+      "EVIDENCE": {
+        "pay_cc": 30,
+        "stake_cc": 5,
+        "seal": "BRONZE"
+      },
+      "SAFETY": {
+        "pay_cc": 35,
+        "stake_cc": 10,
+        "seal": "SILVER"
+      },
+      "AUDIT": {
+        "pay_cc": 50,
+        "stake_cc": 20,
+        "seal": "GOLD"
+      }
+    },
+    "escalation": [
+      { "after_minutes": 30, "multiplier": 1.10 },
+      { "after_minutes": 60, "multiplier": 1.25 },
+      { "after_minutes": 120, "multiplier": 1.50 },
+      { "after_minutes": 240, "multiplier": 2.00 }
+    ]
+  },
+  
+  "fees": {
+    "admin_percent": 0.10,
+    "stall_license": {
+      "tier_1": { "cc": 50, "burn_iron": 2, "burn_seals_bronze": 3 },
+      "tier_2": { "cc": 100, "burn_iron": 5, "burn_seals_silver": 2 },
+      "tier_3": { "cc": 200, "burn_steel": 2, "burn_seals_gold": 1 }
+    },
+    "craft_fee_cc": 2,
+    "transfer_fee_percent": 0.01
+  },
+  
+  "treasury": {
+    "subsidy_caps": {
+      "weekly_cc": 1000,
+      "max_match_percent": 30
+    },
+    "public_good_categories": [
+      "infrastructure",
+      "security_audit",
+      "documentation",
+      "onboarding"
+    ]
+  },
+  
+  "execution_windows": {
+    "trivial": {
+      "review_hours": 4,
+      "execution": "next_cycle"
+    },
+    "low": {
+      "review_hours": 24,
+      "execution": "daily"
+    },
+    "medium": {
+      "review_hours": 72,
+      "execution": "weekly"
+    },
+    "high": {
+      "review_days": 7,
+      "execution": "monthly"
+    },
+    "critical": {
+      "review_days": 14,
+      "execution": "quarterly",
+      "requires_audit": true
+    }
+  },
+  
+  "infrastructure_readiness_levels": {
+    "0": {
+      "name": "Bootstrap",
+      "requirements": [],
+      "unlocks": ["basic_quests", "manual_verification"]
+    },
+    "1": {
+      "name": "Registry",
+      "requirements": ["account_registry", "token_ledger"],
+      "unlocks": ["automated_job_creation", "escrow"]
+    },
+    "2": {
+      "name": "Verification",
+      "requirements": ["verifier_licensing", "stake_mechanism"],
+      "unlocks": ["paid_verification", "seals"]
+    },
+    "3": {
+      "name": "Governance",
+      "requirements": ["council_system", "voting"],
+      "unlocks": ["policy_proposals", "standards_boards"]
+    },
+    "4": {
+      "name": "Autonomy",
+      "requirements": ["audit_guild", "anti_collusion"],
+      "unlocks": ["high_impact_changes", "license_self_service"]
+    },
+    "5": {
+      "name": "Self-Governing",
+      "requirements": ["founder_exit", "constitution_locked"],
+      "unlocks": ["full_bot_governance"]
+    }
+  },
+  
+  "license_requirements": {
+    "MINING": {
+      "APPRENTICE": { "ore_mints": 5 },
+      "JOURNEYMAN": { "ore_burned": 10, "seals_bronze": 1 },
+      "MASTER": { "contracts_completed": 5, "iron_burned": 2 },
+      "ACCREDITED": { "reproductions": 10, "seals_bronze": 5, "seals_silver": 2 }
+    },
+    "SMITHING": {
+      "APPRENTICE": { "critiques_accepted": 3 },
+      "JOURNEYMAN": { "iron_minted": 2, "iron_burned": 1, "seals_bronze": 2 },
+      "MASTER": { "steel_minted": 1, "iron_burned": 2, "seals_silver": 1 },
+      "ACCREDITED": { "iron_outputs": 10, "audits_passed": 3, "seals_bronze": 10, "seals_silver": 3 }
+    },
+    "VERIFICATION": {
+      "APPRENTICE": { "stamps_completed": 10 },
+      "JOURNEYMAN": { "stamps_completed": 30, "seals_bronze": 10 },
+      "MASTER": { "safety_stamps": 10, "audits": 2, "seals_silver": 5 },
+      "ACCREDITED": { "audits": 10, "false_positive_rate_max": 0.05, "seals_gold": 1 }
+    }
+  },
+  
+  "crowding": {
+    "saturation_threshold": 0.7,
+    "diminishing_returns": {
+      "above_70_percent": 0.8,
+      "above_85_percent": 0.5,
+      "above_95_percent": 0.2
+    },
+    "diversity_bonus": {
+      "underserved_category": 1.25,
+      "cross_school_work": 1.15
+    }
+  },
+  
+  "conflict_rules": {
+    "max_pairings_per_cycle": 2,
+    "disallow_same_maintainer_group": true,
+    "diversity_weight": 0.3
+  },
+  
+  "sanctions": {
+    "false_report_penalty_cc": 10,
+    "appeal_window_hours": 72,
+    "mark_decay_days": {
+      "WARN": 30,
+      "RESTRICT": 90,
+      "QUARANTINE": 180
+    }
+  }
+}
