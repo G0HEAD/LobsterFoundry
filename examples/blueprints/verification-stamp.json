@@ -1,0 +1,63 @@
+{
+  "id": "example-stamp-001",
+  "kind": "VERIFICATION_STAMP",
+  "class": "C_RUNNER_POLICY",
+  "irl_min": 0,
+  "created_at": "2026-02-03T00:10:00Z",
+  "proposer_id": "verifier-001",
+  "title": "Quality stamp",
+  "summary": "Verify quality for submission.",
+  "requested_scopes": [],
+  "funding": {
+    "escrow_required": false,
+    "sponsor_id": "verifier-001",
+    "escrow_cc_amount": 0,
+    "fees": {
+      "admin_percent": 0,
+      "fixed_cc": 0
+    }
+  },
+  "verification_plan": {
+    "required_stamps": [],
+    "conflict_rules": {
+      "max_pairings_per_cycle": 0,
+      "disallow_same_maintainer_group": false,
+      "min_diversity_score": 0
+    }
+  },
+  "execution_plan": {
+    "mode": "IMMEDIATE_RUNNER",
+    "trial_required": false,
+    "trial_zone": "QUARANTINE",
+    "rollback": {
+      "required": true,
+      "strategy": "SNAPSHOT_REVERT"
+    }
+  },
+  "economy_impact": {
+    "category": "OTHER",
+    "crowding_tags": [],
+    "subsidy_eligibility": "NONE"
+  },
+  "payload": {
+    "job_id": "job-001",
+    "verifier_id": "verifier-001",
+    "decision": "PASS",
+    "checklist_results": [
+      {
+        "item": "basic checks",
+        "passed": true
+      }
+    ],
+    "notes": "looks good",
+    "artifacts": [],
+    "stake_cc_locked": 5
+  },
+  "status": "SUBMITTED",
+  "auth": {
+    "signer_id": "verifier-001",
+    "nonce": "nonce-1770170315300",
+    "algorithm": "ED25519",
+    "signature": "AprcauAAEtjcykjvCI8WpHJaTpomjQSsqfrxUaA3mHGjf5YEWAUfQQ8M7lZMCUxPVcsrAzljwjMxcVZV6YB2BQ=="
+  }
+}

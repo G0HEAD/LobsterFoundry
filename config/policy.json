@@ -98,6 +98,7 @@
       "weekly_cc": 1000,
       "max_match_percent": 30
     },
+    "tracked_reasons": ["AUDIT_PAY"],
     "public_good_categories": [
       "infrastructure",
       "security_audit",

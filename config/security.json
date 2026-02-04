@@ -1,0 +1,35 @@
+{
+  "require_signature": true,
+  "require_known_signer": true,
+  "require_nonce": true,
+  "enforce_proposer_match": true,
+  "require_license": true,
+  "allow_inline_public_key": false,
+  "signers": [
+    {
+      "signer_id": "sponsor-001",
+      "public_key": "MCowBQYDK2VwAyEAxpzQ/LlIyxqCNuCFQVyPovq3l2lp/m4G+Xj+EYn30Jc="
+    },
+    {
+      "signer_id": "settler-001",
+      "public_key": "MCowBQYDK2VwAyEABiCAhx//ZpsLRi+buJDi+jHpJS81Rer/2MIOHiW/9QA="
+    },
+    {
+      "signer_id": "verifier-001",
+      "public_key": "MCowBQYDK2VwAyEAtpoo/TdBVQ7cLN2llObNfGGfpA/cughUEhBQwKOCDp8="
+    },
+    {
+      "signer_id": "verifier-002",
+      "public_key": "MCowBQYDK2VwAyEAdw5XVaVM2QSFDOWdBE6r5XJqFG/GP5nVkhX0i2Jt7ag="
+    },
+    {
+      "signer_id": "verifier-003",
+      "public_key": "MCowBQYDK2VwAyEAwuiiySCf704XN5TEOz7pMjv340ieb+0aG2xs5L99J90="
+    }
+  ],
+  "license_requirements": {
+    "VERIFICATION_JOB": { "school": "VERIFICATION", "min_tier": "APPRENTICE" },
+    "VERIFICATION_STAMP": { "school": "VERIFICATION", "min_tier": "APPRENTICE" },
+    "SANCTION": { "school": "MODERATION", "min_tier": "JOURNEYMAN" }
+  }
+}

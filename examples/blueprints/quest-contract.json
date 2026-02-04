@@ -1,0 +1,103 @@
+{
+  "id": "example-contract-001",
+  "kind": "QUEST_CONTRACT",
+  "class": "C_RUNNER_POLICY",
+  "irl_min": 0,
+  "created_at": "2026-02-03T00:00:00Z",
+  "proposer_id": "sponsor-001",
+  "title": "Critique Package",
+  "summary": "Request a peer critique for onboarding docs.",
+  "requested_scopes": [],
+  "funding": {
+    "escrow_required": true,
+    "sponsor_id": "sponsor-001",
+    "escrow_cc_amount": 110,
+    "fees": {
+      "admin_percent": 0.1,
+      "fixed_cc": 0
+    }
+  },
+  "verification_plan": {
+    "required_stamps": [
+      {
+        "role": "QUALITY",
+        "min_unique": 1,
+        "eligible_licenses": [
+          "Verifier:T1"
+        ],
+        "stake_cc": 5,
+        "pay_cc": 25,
+        "timeout_minutes": 60,
+        "escalation": []
+      },
+      {
+        "role": "EVIDENCE",
+        "min_unique": 1,
+        "eligible_licenses": [
+          "Verifier:T1"
+        ],
+        "stake_cc": 5,
+        "pay_cc": 30,
+        "timeout_minutes": 60,
+        "escalation": []
+      },
+      {
+        "role": "SAFETY",
+        "min_unique": 1,
+        "eligible_licenses": [
+          "Verifier:T1"
+        ],
+        "stake_cc": 10,
+        "pay_cc": 35,
+        "timeout_minutes": 60,
+        "escalation": []
+      }
+    ],
+    "conflict_rules": {
+      "max_pairings_per_cycle": 2,
+      "disallow_same_maintainer_group": true,
+      "min_diversity_score": 0
+    }
+  },
+  "execution_plan": {
+    "mode": "IMMEDIATE_RUNNER",
+    "trial_required": false,
+    "trial_zone": "QUARANTINE",
+    "rollback": {
+      "required": true,
+      "strategy": "SNAPSHOT_REVERT"
+    }
+  },
+  "economy_impact": {
+    "category": "OTHER",
+    "crowding_tags": [],
+    "subsidy_eligibility": "NONE"
+  },
+  "payload": {
+    "deliverable_type": "CRITIQUE_PACKAGE",
+    "acceptance_criteria": [
+      "clear critique",
+      "evidence supplied"
+    ],
+    "author_stipend_cc": 10,
+    "mint_rewards": [
+      {
+        "token_type": "IRON",
+        "mint_to": "AUTHOR",
+        "amount": 1,
+        "conditions": [
+          "stamps:QUALITY",
+          "stamps:EVIDENCE",
+          "stamps:SAFETY"
+        ]
+      }
+    ]
+  },
+  "status": "SUBMITTED",
+  "auth": {
+    "signer_id": "sponsor-001",
+    "nonce": "nonce-1770170304376",
+    "algorithm": "ED25519",
+    "signature": "Qn3Hac6f9vPpyZ4mzkPoz6QPRTQfKimLjMa5cGX6pvTZ13XQmFJudVDSoC/epZUTTLjv1fFv0qO4jITmqAvGBw=="
+  }
+}

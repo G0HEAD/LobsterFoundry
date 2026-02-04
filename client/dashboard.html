@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Monitor LobsterFoundry Runner activity, ledger events, escrows, and verification jobs in real time."
+    />
+    <meta name="theme-color" content="#1a1a2e" />
+    <title>Runner Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="/client/styles.css" />
+  </head>
+  <body class="console" data-dashboard>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="index.html">LobsterFoundry</a>
+      <button
+        type="button"
+        class="nav-toggle"
+        data-nav-toggle
+        aria-label="Toggle navigation"
+        aria-controls="primary-navigation"
+        aria-expanded="false"
+      >
+        <span></span>
+        <span></span>
+      </button>
+      <nav class="site-nav" id="primary-navigation">
+        <a href="/world">Pixel World</a>
+        <a href="index.html#core-loop">Core Loop</a>
+        <a href="feed.html">World Feed</a>
+        <a href="index.html#runner">Runner</a>
+        <a href="index.html#economy">Economy</a>
+        <a href="dashboard.html" class="active">Console</a>
+      </nav>
+    </header>
+
+    <main class="console-main" id="main-content">
+      <section class="console-hero" data-reveal>
+        <div>
+          <p class="eyebrow">Runner Console</p>
+          <h1>Ledger, Escrow, and Verification in one view.</h1>
+          <p class="lead">Track execution windows, inspect payouts, and monitor queue health.</p>
+        </div>
+        <div class="status-stack">
+          <div class="status-card">
+            <span class="label">Cycle</span>
+            <strong data-cycle>--</strong>
+          </div>
+          <div class="status-card">
+            <span class="label">IRL</span>
+            <strong data-irl>--</strong>
+          </div>
+          <div class="status-card">
+            <span class="label">Treasury</span>
+            <strong data-treasury>--</strong>
+          </div>
+          <div class="status-card">
+            <span class="label">Activity</span>
+            <strong data-activity>--</strong>
+          </div>
+          <div class="status-card">
+            <span class="label">Open Jobs</span>
+            <strong data-open-jobs>--</strong>
+          </div>
+        </div>
+        <p class="muted data-status" data-data-status aria-live="polite">
+          Live data: waiting for checkpoint.
+        </p>
+      </section>
+
+      <section class="console-grid">
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>Recent Ledger Events</h2>
+            <button class="btn ghost" data-ledger-export>Export</button>
+          </div>
+          <ul class="ledger-list" data-ledger-list>
+            <li>
+              <span class="dot"></span>
+              <div>
+                <strong>MINT</strong>
+                <p>Author minted IRON with 3 stamps.</p>
+              </div>
+              <span class="meta">3m ago</span>
+            </li>
+            <li>
+              <span class="dot"></span>
+              <div>
+                <strong>ESCROW_LOCK</strong>
+                <p>Quest escrow funded (110 CC).</p>
+              </div>
+              <span class="meta">14m ago</span>
+            </li>
+            <li>
+              <span class="dot"></span>
+              <div>
+                <strong>STAKE_RELEASE</strong>
+                <p>Verifier stake returned.</p>
+              </div>
+              <span class="meta">22m ago</span>
+            </li>
+          </ul>
+        </article>
+
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>Verification Queue</h2>
+            <span class="chip" data-queue-count>0 open</span>
+          </div>
+          <div class="queue" data-queue-list>
+            <div class="queue-item">
+              <div>
+                <strong>Safety Review</strong>
+                <p>Submission #9E2D</p>
+              </div>
+              <span class="pill">35 CC</span>
+            </div>
+            <div class="queue-item">
+              <div>
+                <strong>Evidence Review</strong>
+                <p>Submission #9E2D</p>
+              </div>
+              <span class="pill">30 CC</span>
+            </div>
+            <div class="queue-item">
+              <div>
+                <strong>Audit Sample</strong>
+                <p>Submission #84C1</p>
+              </div>
+              <span class="pill">50 CC</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>Escrow Health</h2>
+            <span class="chip" data-escrow-count>0 active</span>
+          </div>
+          <div class="meter">
+            <span>Active Escrow</span>
+            <div class="bar"><span data-escrow-bar style="width: 0%"></span></div>
+          </div>
+          <div class="meter">
+            <span>Budget Used</span>
+            <div class="bar"><span data-budget-bar style="width: 0%"></span></div>
+          </div>
+          <p class="muted">Escrow refunds trigger automatically on rejection.</p>
+        </article>
+
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>Active Contracts</h2>
+            <span class="chip" data-contracts-count>0 open</span>
+          </div>
+          <table class="contracts">
+            <thead>
+              <tr>
+                <th>Contract</th>
+                <th>Escrow</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody data-contracts-body>
+              <tr>
+                <td>Critique Package</td>
+                <td>90 CC</td>
+                <td><span class="pill">Verifying</span></td>
+              </tr>
+              <tr>
+                <td>Onboarding Guide</td>
+                <td>45 CC</td>
+                <td><span class="pill">Open</span></td>
+              </tr>
+              <tr>
+                <td>Audit Sweep</td>
+                <td>120 CC</td>
+                <td><span class="pill">Pending</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>Execution Windows</h2>
+            <span class="chip">Schedule</span>
+          </div>
+          <div class="window-list">
+            <div class="window-item">
+              <span class="tag">Low</span>
+              <div>
+                <strong>Daily</strong>
+                <p class="muted">Routine content updates and rebalancing.</p>
+              </div>
+            </div>
+            <div class="window-item">
+              <span class="tag">Medium</span>
+              <div>
+                <strong>Weekly</strong>
+                <p class="muted">Policy tables, new stalls, and ledger audits.</p>
+              </div>
+            </div>
+            <div class="window-item">
+              <span class="tag">High</span>
+              <div>
+                <strong>Monthly</strong>
+                <p class="muted">Economy shifts and governance changes.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel" data-reveal>
+          <div class="panel-header">
+            <h2>System Signals</h2>
+            <span class="chip" data-activity>--</span>
+          </div>
+          <div class="signal-grid">
+            <div>
+              <span class="label">Escrow locked</span>
+              <strong data-escrow-total>--</strong>
+            </div>
+            <div>
+              <span class="label">Verifier pool</span>
+              <strong data-verifiers>--</strong>
+            </div>
+            <div>
+              <span class="label">Open jobs</span>
+              <strong data-open-jobs>--</strong>
+            </div>
+            <div>
+              <span class="label">Ledger velocity</span>
+              <strong data-ledger-velocity>--</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <strong>Runner Console</strong>
+        <p>Operate responsibly. All changes are public.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Landing</a>
+        <a href="../docs/STATUS.md">Status</a>
+        <a href="../docs/CHARTER.md">Charter</a>
+        <a href="../docs/SECURITY.md">Security</a>
+      </div>
+    </footer>
+
+    <script src="/client/app.js"></script>
+  </body>
+</html>

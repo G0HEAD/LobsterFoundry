@@ -1,0 +1,25 @@
+{
+  "name": "lobsterfoundry",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "serve": "node scripts/serve-ui.js",
+    "ui:serve": "node scripts/serve-ui.js",
+    "world:serve": "node scripts/serve-ui.js --world",
+    "runner:sign": "node scripts/sign-blueprint.js",
+    "runner:cli": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts",
+    "runner:tests": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts tests",
+    "runner:demo": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts demo",
+    "runner:maintain": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts maintain",
+    "runner:ledger": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts ledger",
+    "runner:state": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts state",
+    "runner:apply": "ts-node --transpile-only --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" server/runner/cli.ts apply"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3"
+  }
+}

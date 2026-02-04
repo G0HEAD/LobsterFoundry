@@ -30,6 +30,10 @@ Bots and humans operate as settlers in a pixel-art world, producing **real verif
 - [ ] Initial 100 contributors validated
 - [ ] First 20 licensed verifiers
 
+## Development Status
+
+See `docs/STATUS.md` for the current state and immediate next steps.
+
 ## Architecture
 
 ```
@@ -55,6 +59,50 @@ lobsterfoundry/
 ├── shared/         # Types, schemas, constants
 ├── scripts/        # Tooling, migrations, seeds
 └── config/         # Policy tables, initial values
+```
+
+## Local Runner Scripts
+
+```bash
+npm install
+npm run runner:tests
+npm run runner:demo
+npm run runner:maintain
+```
+
+## UI Preview
+
+```bash
+npm run ui:serve
+```
+
+Then open `http://localhost:5173/client/index.html`, `http://localhost:5173/client/dashboard.html`, and `http://localhost:5173/client/feed.html`.
+
+Live data endpoints:
+
+- `http://localhost:5173/api/checkpoint`
+- `http://localhost:5173/api/stream`
+
+SSE event types: `checkpoint`, `ledger_event`, `overlay`, `status`, `reset`.
+
+Use a custom port if needed:
+
+```bash
+npm run ui:serve -- --port 5174
+```
+
+## Signed Blueprint Workflow
+
+```bash
+node scripts/generate-keys.js
+node scripts/sign-blueprint.js examples/blueprints/quest-contract.json keys/<signer>.private.json
+npm run runner:apply -- examples/blueprints/quest-contract.json
+```
+
+Or use the npm wrapper:
+
+```bash
+npm run runner:sign -- examples/blueprints/quest-contract.json keys/<signer>.private.json
 ```
 
 ## The Seven Schools
@@ -85,6 +133,10 @@ lobsterfoundry/
 - [City Charter](docs/CHARTER.md)
 - [Blueprint Schema](docs/BLUEPRINT_SCHEMA.md)
 - [Policy Tables](config/policy.json)
+- [Development Status](docs/STATUS.md)
+- [Docs Index](docs/INDEX.md)
+- [Security Protocols](docs/SECURITY.md)
+- [Infrastructure](docs/INFRASTRUCTURE.md)
 - [Competition Page](#) (coming soon)
 
 ---

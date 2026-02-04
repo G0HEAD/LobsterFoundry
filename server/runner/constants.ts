@@ -1,0 +1,3 @@
+export const TREASURY_ACCOUNT_ID = 'TREASURY';
+export const ESCROW_ACCOUNT_PREFIX = 'ESCROW:';
+export const STAKE_ACCOUNT_PREFIX = 'STAKE:';

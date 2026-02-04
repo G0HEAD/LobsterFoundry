@@ -186,6 +186,14 @@ export interface Artifact {
 /**
  * Blueprint Envelope — The universal container for all proposals
  */
+export interface EnvelopeAuth {
+  signer_id: string;
+  signature: string; // base64 signature
+  nonce: string;
+  algorithm: 'ED25519';
+  public_key?: string; // optional override (PEM or base64 DER)
+}
+
 export interface BlueprintEnvelope {
   id: string;
   kind: BlueprintKind;
@@ -215,6 +223,9 @@ export interface BlueprintEnvelope {
   
   // The actual payload (varies by kind)
   payload: any;
+
+  // Authentication
+  auth?: EnvelopeAuth;
   
   // Status tracking
   status: 'DRAFT' | 'SUBMITTED' | 'VERIFYING' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | 'ROLLED_BACK';
@@ -319,6 +330,27 @@ export interface WorkSubmissionPayload {
   requested_mint: TokenType[];
 }
 
+export interface VerificationJobAcceptPayload {
+  job_id: string;
+  verifier_id: string;
+  stake_cc_locked: number;
+}
+
+export interface SanctionPayload {
+  target_type: 'STAKE' | 'SUBMISSION' | 'ACCOUNT';
+  target_id: string;
+  action: 'SLASH' | 'REJECT' | 'FLAG';
+  reason: string;
+  amount_cc?: number;
+  recipient_id?: string;
+}
+
+export interface AppealPayload {
+  sanction_id: string;
+  appellant_id: string;
+  reason: string;
+}
+
 export interface VerificationStampPayload {
   job_id: string;
   verifier_id: string;
@@ -358,7 +390,16 @@ export interface CraftPayload {
 
 export interface LedgerEvent {
   id: string;
-  type: 'MINT' | 'TRANSFER' | 'BURN' | 'SPEND' | 'ESCROW_LOCK' | 'ESCROW_RELEASE' | 'BLUEPRINT_EXEC';
+  type:
+    | 'MINT'
+    | 'TRANSFER'
+    | 'BURN'
+    | 'SPEND'
+    | 'ESCROW_LOCK'
+    | 'ESCROW_RELEASE'
+    | 'STAKE_LOCK'
+    | 'STAKE_RELEASE'
+    | 'BLUEPRINT_EXEC';
   timestamp: string;
   
   // What happened
