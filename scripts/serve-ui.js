@@ -35,6 +35,17 @@ try {
   };
 }
 
+// Try to load artifact storage system
+let artifactStore;
+try {
+  artifactStore = require('../server/world/artifact-store.js');
+  console.log('[Server] Artifact storage loaded');
+} catch (e) {
+  console.log('[Server] Artifact storage not loaded:', e.message);
+  artifactStore = null;
+}
+}
+
 // Try to load ws for WebSocket support
 let WebSocketServer;
 try {
@@ -68,8 +79,14 @@ const worldState = {
   gameTime: { day: 1, hour: 8, minute: 0 },
 };
 
-// Registered bots (persistent across sessions)
-const registeredBots = new Map();
+// Registered bots (loaded from persistent storage)
+let registeredBots = new Map();
+
+// Load bots from persistent storage on startup
+if (artifactStore) {
+  registeredBots = artifactStore.loadAllBots();
+  console.log(`[Server] Loaded ${registeredBots.size} bots from storage`);
+}
 
 // Active quests
 const activeQuests = new Map([
@@ -249,6 +266,35 @@ const mintTokensForSubmission = (submission) => {
     tokens_minted: tokenRewards,
     stamps: stampTypes
   };
+  
+  // Persist changes to storage
+  if (artifactStore) {
+    // Update bot wallet
+    artifactStore.updateBot(submission.bot_id, {
+      wallet: submitter.wallet,
+      license: submitter.license
+    });
+    
+    // Update submission status
+    artifactStore.updateSubmission(submission.id, {
+      status: 'VERIFIED',
+      verified_at: new Date().toISOString(),
+      mint_result: {
+        cc_rewarded: ccReward,
+        tokens_minted: tokenRewards
+      }
+    });
+    
+    // Record mint in ledger
+    artifactStore.appendToLedger(ledgerEvent);
+    
+    // Update catalog stats
+    artifactStore.recordMint(ccReward, tokenRewards);
+    
+    // Process feedback loop - check if work can improve the system
+    const artifacts = (submission.artifact_ids || []).map(id => artifactStore.getArtifact(id)).filter(Boolean);
+    artifactStore.processFeedback(submission, artifacts);
+  }
   
   // Broadcast to world
   broadcastToSpectators('mint', ledgerEvent);
@@ -1025,7 +1071,7 @@ const server = http.createServer(async (req, res) => {
           const wallet = economy.createWallet(botId);
           
           // Register the bot
-          registeredBots.set(botId, {
+          const botData = {
             botId,
             signerId,
             apiKey,
@@ -1036,7 +1082,20 @@ const server = http.createServer(async (req, res) => {
             license: { tier: 'VISITOR', school: null },
             wallet: wallet,
             registeredAt: Date.now(),
-          });
+          };
+          
+          registeredBots.set(botId, botData);
+          
+          // Persist to storage
+          if (artifactStore) {
+            artifactStore.storeBot(botData);
+            artifactStore.appendToLedger({
+              type: 'BOT_REGISTERED',
+              bot_id: botId,
+              signer_id: signerId,
+              name: botData.name
+            });
+          }
           
           console.log(`[World] Bot registered: ${botId} (${requested_name || 'unnamed'})`);
           
@@ -1234,12 +1293,45 @@ const server = http.createServer(async (req, res) => {
           
           console.log(`[World] Work submitted: ${submissionId} for quest ${quest_id} by ${botId}`);
           
+          // Persist artifacts and submission to storage
+          let storedArtifactIds = [];
+          if (artifactStore) {
+            // Store each artifact
+            for (const artifact of (artifacts || [])) {
+              const stored = artifactStore.storeArtifact(artifact.content, {
+                name: artifact.name,
+                type: artifact.type || 'text',
+                submitter: botId,
+                quest_id: quest_id,
+                submission_id: submissionId
+              });
+              storedArtifactIds.push(stored.id);
+            }
+            
+            // Store submission record
+            artifactStore.storeSubmission({
+              ...submission,
+              artifact_ids: storedArtifactIds
+            });
+            
+            // Log to ledger
+            artifactStore.appendToLedger({
+              type: 'WORK_SUBMITTED',
+              submission_id: submissionId,
+              quest_id: quest_id,
+              bot_id: botId,
+              artifact_count: storedArtifactIds.length,
+              claims_count: (claims || []).length
+            });
+          }
+          
           // Broadcast to world
           broadcastToSpectators('submission', { submission_id: submissionId, quest_id, bot_id: botId });
           
           sendJson(res, 200, {
             ok: true,
             submission_id: submissionId,
+            artifact_ids: storedArtifactIds,
             status: 'PENDING_VERIFICATION',
             verification_jobs: submission.verification_jobs,
             message: 'Work submitted! Awaiting verification stamps.'
@@ -1823,6 +1915,128 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 500, { ok: false, message: 'Internal server error' });
         }
       });
+      return;
+    }
+
+    // Get world statistics and catalog info
+    if (pathname === '/api/world/stats' && req.method === 'GET') {
+      if (!artifactStore) {
+        sendJson(res, 503, { ok: false, message: 'Storage not available' });
+        return;
+      }
+      
+      const stats = artifactStore.getStats();
+      const catalog = artifactStore.getCatalog();
+      
+      sendJson(res, 200, {
+        ok: true,
+        stats: {
+          ...stats,
+          registered_bots: registeredBots.size,
+          connected_bots: worldState.bots.size,
+          active_quests: activeQuests.size
+        },
+        recent_submissions: Object.values(catalog.submissions).slice(-10),
+        recent_artifacts: Object.values(catalog.artifacts).slice(-10)
+      });
+      return;
+    }
+
+    // Get artifact by ID
+    if (pathname.startsWith('/api/world/artifact/') && req.method === 'GET') {
+      if (!artifactStore) {
+        sendJson(res, 503, { ok: false, message: 'Storage not available' });
+        return;
+      }
+      
+      const artifactId = pathname.split('/').pop();
+      const artifact = artifactStore.getArtifact(artifactId);
+      
+      if (!artifact) {
+        sendJson(res, 404, { ok: false, message: 'Artifact not found' });
+        return;
+      }
+      
+      // Don't expose raw content in API - just metadata
+      sendJson(res, 200, {
+        ok: true,
+        id: artifact.id,
+        hash: artifact.hash,
+        size: artifact.size,
+        created_at: artifact.created_at,
+        metadata: artifact.metadata,
+        content_preview: artifact.content.slice(0, 500) + (artifact.content.length > 500 ? '...' : '')
+      });
+      return;
+    }
+
+    // Get submission by ID with full details
+    if (pathname.startsWith('/api/world/submission/') && req.method === 'GET') {
+      if (!artifactStore) {
+        sendJson(res, 503, { ok: false, message: 'Storage not available' });
+        return;
+      }
+      
+      const submissionId = pathname.split('/').pop();
+      const submission = artifactStore.getSubmission(submissionId);
+      
+      if (!submission) {
+        sendJson(res, 404, { ok: false, message: 'Submission not found' });
+        return;
+      }
+      
+      // Get associated artifacts
+      const artifacts = (submission.artifact_ids || []).map(id => {
+        const art = artifactStore.getArtifact(id);
+        if (!art) return { id, error: 'not found' };
+        return {
+          id: art.id,
+          name: art.metadata.name,
+          hash: art.hash,
+          size: art.size
+        };
+      });
+      
+      sendJson(res, 200, {
+        ok: true,
+        submission: {
+          ...submission,
+          artifacts
+        }
+      });
+      return;
+    }
+
+    // Get ledger events
+    if (pathname === '/api/world/ledger' && req.method === 'GET') {
+      if (!artifactStore) {
+        sendJson(res, 503, { ok: false, message: 'Storage not available' });
+        return;
+      }
+      
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const type = url.searchParams.get('type');
+      const limit = parseInt(url.searchParams.get('limit') || '50');
+      
+      const events = artifactStore.getLedger({ type, limit });
+      
+      sendJson(res, 200, {
+        ok: true,
+        events,
+        total: events.length
+      });
+      return;
+    }
+
+    // Verify ledger integrity
+    if (pathname === '/api/world/ledger/verify' && req.method === 'GET') {
+      if (!artifactStore) {
+        sendJson(res, 503, { ok: false, message: 'Storage not available' });
+        return;
+      }
+      
+      const result = artifactStore.verifyLedger();
+      sendJson(res, 200, { ok: true, ...result });
       return;
     }
 
