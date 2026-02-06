@@ -2141,14 +2141,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Pixel world page redirect
+    // Pixel world page redirect (dev view)
     if (pathname === '/world' || pathname === '/world/') {
       pathname = '/client/world/world.html';
     }
     
+    // Spectator portal (human read-only view)
+    if (pathname === '/spectator' || pathname === '/spectator/' || pathname === '/watch' || pathname === '/watch/') {
+      pathname = '/client/spectator/spectator.html';
+    }
+    
     // Redirect common pages to /client/ folder
+    // Root goes to spectator portal by default (humans land here)
     if (pathname === '/' || pathname === '/index.html') {
-      pathname = '/client/index.html';
+      pathname = '/client/spectator/spectator.html';
     }
     if (pathname === '/feed.html') {
       pathname = '/client/feed.html';
