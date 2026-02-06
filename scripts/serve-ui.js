@@ -4,6 +4,19 @@ const fs = require('fs/promises');
 const zlib = require('zlib');
 const crypto = require('crypto');
 
+// Try to load skill instructions
+let skillInstructions;
+try {
+  skillInstructions = require('../server/world/skill-instructions.js');
+} catch (e) {
+  console.log('[Server] Skill instructions not loaded:', e.message);
+  skillInstructions = {
+    getSkillInstructions: () => null,
+    getAllStalls: () => [],
+    checkStallLicense: () => ({ allowed: true })
+  };
+}
+
 // Try to load ws for WebSocket support
 let WebSocketServer;
 try {
@@ -36,6 +49,57 @@ const worldState = {
   tick: 0,
   gameTime: { day: 1, hour: 8, minute: 0 },
 };
+
+// Registered bots (persistent across sessions)
+const registeredBots = new Map();
+
+// Active quests
+const activeQuests = new Map([
+  ['quest_001', {
+    id: 'quest_001',
+    title: 'Review Runner Kernel Error Handling',
+    stall: 'forge_stall',
+    sponsor: 'sponsor-001',
+    escrow_cc: 50,
+    reward_tokens: ['ORE', 'IRON'],
+    description: 'Review the error handling in server/runner/kernel.ts and provide a structured critique.',
+    deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'OPEN',
+    submissions: []
+  }],
+  ['quest_002', {
+    id: 'quest_002',
+    title: 'Document Bot Connection API',
+    stall: 'archive_desk',
+    sponsor: 'sponsor-001',
+    escrow_cc: 30,
+    reward_tokens: ['ORE'],
+    description: 'Create comprehensive documentation for the bot connection WebSocket API.',
+    deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'OPEN',
+    submissions: []
+  }],
+  ['quest_003', {
+    id: 'quest_003',
+    title: 'Verify Skill Instructions Accuracy',
+    stall: 'stamp_desk',
+    sponsor: 'sponsor-001',
+    escrow_cc: 25,
+    reward_tokens: ['ORE'],
+    description: 'Verify that the skill instructions in forge_stall are accurate and complete.',
+    deadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'OPEN',
+    submissions: [],
+    requires_license: { school: 'VERIFICATION', min_tier: 'APPRENTICE' }
+  }]
+]);
+
+// Work submissions awaiting verification
+const pendingSubmissions = new Map();
+
+// License tiers
+const LICENSE_TIERS = ['VISITOR', 'CITIZEN', 'APPRENTICE', 'JOURNEYMAN', 'MASTER', 'ACCREDITED'];
+const SCHOOLS = ['MINING', 'SMITHING', 'COOKING', 'CARTOGRAPHY', 'ARCHIVIST', 'VERIFICATION', 'MODERATION'];
 
 // Generate a unique ID
 const generateId = () => crypto.randomBytes(8).toString('hex');
@@ -808,6 +872,267 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Bot registration endpoint
+    if (pathname === '/api/world/bot/register' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const { agent_type, agent_version, public_key, requested_name } = data;
+          
+          if (!agent_type || !public_key) {
+            sendJson(res, 400, { ok: false, message: 'Missing required fields: agent_type, public_key' });
+            return;
+          }
+          
+          // Generate bot ID and API key
+          const botId = `bot_${crypto.createHash('sha256').update(public_key).digest('hex').slice(0, 12)}`;
+          const apiKey = crypto.randomBytes(32).toString('hex');
+          const signerId = `settler-${(requested_name || botId).toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}`;
+          
+          // Check if already registered
+          if (registeredBots.has(botId)) {
+            sendJson(res, 409, { ok: false, message: 'Bot already registered', botId });
+            return;
+          }
+          
+          // Register the bot
+          registeredBots.set(botId, {
+            botId,
+            signerId,
+            apiKey,
+            publicKey: public_key,
+            agentType: agent_type,
+            agentVersion: agent_version,
+            name: requested_name || `Bot-${botId.slice(4, 10)}`,
+            license: { tier: 'VISITOR', school: null },
+            registeredAt: Date.now(),
+            stats: { quests_completed: 0, tokens_earned: 0, seals: { bronze: 0, silver: 0, gold: 0 } }
+          });
+          
+          console.log(`[World] Bot registered: ${botId} (${requested_name || 'unnamed'})`);
+          
+          sendJson(res, 200, {
+            ok: true,
+            bot_id: botId,
+            signer_id: signerId,
+            api_key: apiKey,
+            assigned_license: 'VISITOR',
+            welcome_message: 'Welcome to LobsterFoundry! Read /docs/AGENT_INTEGRATION.md to get started.'
+          });
+        } catch (error) {
+          console.error('[World] Registration error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Get skill instructions for a stall
+    if (pathname.startsWith('/api/world/stall/') && req.method === 'GET') {
+      const stallId = pathname.split('/').pop();
+      const instructions = skillInstructions.getSkillInstructions(stallId);
+      
+      if (!instructions) {
+        sendJson(res, 404, { ok: false, message: 'Stall not found' });
+        return;
+      }
+      
+      // Also include available quests for this stall
+      const stallQuests = Array.from(activeQuests.values())
+        .filter(q => q.stall === stallId && q.status === 'OPEN')
+        .map(q => ({
+          quest_id: q.id,
+          title: q.title,
+          sponsor: q.sponsor,
+          escrow_cc: q.escrow_cc,
+          reward_tokens: q.reward_tokens,
+          deadline: q.deadline
+        }));
+      
+      sendJson(res, 200, {
+        ok: true,
+        ...instructions,
+        available_quests: stallQuests
+      });
+      return;
+    }
+
+    // List all stalls
+    if (pathname === '/api/world/stalls' && req.method === 'GET') {
+      sendJson(res, 200, {
+        ok: true,
+        stalls: skillInstructions.getAllStalls()
+      });
+      return;
+    }
+
+    // List quests
+    if (pathname === '/api/world/quests' && req.method === 'GET') {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const stallFilter = url.searchParams.get('stall');
+      const statusFilter = url.searchParams.get('status') || 'OPEN';
+      
+      let quests = Array.from(activeQuests.values());
+      
+      if (stallFilter) {
+        quests = quests.filter(q => q.stall === stallFilter);
+      }
+      if (statusFilter !== 'ALL') {
+        quests = quests.filter(q => q.status === statusFilter);
+      }
+      
+      sendJson(res, 200, {
+        ok: true,
+        quests: quests.map(q => ({
+          quest_id: q.id,
+          title: q.title,
+          stall: q.stall,
+          sponsor: q.sponsor,
+          escrow_cc: q.escrow_cc,
+          reward_tokens: q.reward_tokens,
+          description: q.description,
+          deadline: q.deadline,
+          status: q.status,
+          submissions_count: q.submissions.length
+        }))
+      });
+      return;
+    }
+
+    // Submit work
+    if (pathname === '/api/world/submit' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const botId = `bot_${crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+          
+          // Verify bot is registered and connected
+          const bot = worldState.bots.get(botId);
+          if (!bot) {
+            sendJson(res, 401, { ok: false, message: 'Bot not authenticated' });
+            return;
+          }
+          
+          const data = JSON.parse(body);
+          const { quest_id, artifacts, claims, requested_tokens } = data;
+          
+          // Validate quest exists
+          const quest = activeQuests.get(quest_id);
+          if (!quest) {
+            sendJson(res, 404, { ok: false, message: 'Quest not found' });
+            return;
+          }
+          
+          if (quest.status !== 'OPEN') {
+            sendJson(res, 400, { ok: false, message: 'Quest is not open for submissions' });
+            return;
+          }
+          
+          // Create submission
+          const submissionId = `sub_${generateId()}`;
+          const submission = {
+            id: submissionId,
+            quest_id,
+            bot_id: botId,
+            artifacts: artifacts || [],
+            claims: claims || [],
+            requested_tokens: requested_tokens || quest.reward_tokens,
+            submitted_at: new Date().toISOString(),
+            status: 'PENDING_VERIFICATION',
+            verification_jobs: []
+          };
+          
+          // Add to quest submissions
+          quest.submissions.push(submissionId);
+          pendingSubmissions.set(submissionId, submission);
+          
+          // Create verification jobs
+          const jobTypes = ['QUALITY', 'EVIDENCE'];
+          if (submission.requested_tokens.includes('IRON')) {
+            jobTypes.push('SAFETY');
+          }
+          
+          jobTypes.forEach(jobType => {
+            const jobId = `job_${generateId()}`;
+            submission.verification_jobs.push({
+              id: jobId,
+              type: jobType,
+              status: 'OPEN',
+              pay_cc: jobType === 'QUALITY' ? 25 : jobType === 'EVIDENCE' ? 30 : 35,
+              stake_cc: 5
+            });
+          });
+          
+          console.log(`[World] Work submitted: ${submissionId} for quest ${quest_id} by ${botId}`);
+          
+          // Broadcast to world
+          broadcastToSpectators('submission', { submission_id: submissionId, quest_id, bot_id: botId });
+          
+          sendJson(res, 200, {
+            ok: true,
+            submission_id: submissionId,
+            status: 'PENDING_VERIFICATION',
+            verification_jobs: submission.verification_jobs,
+            message: 'Work submitted! Awaiting verification stamps.'
+          });
+        } catch (error) {
+          console.error('[World] Submit error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Get bot status
+    if (pathname === '/api/world/bot/status' && req.method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+        return;
+      }
+      
+      const token = authHeader.replace('Bearer ', '');
+      const botId = `bot_${crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+      
+      const registered = registeredBots.get(botId);
+      const connected = worldState.bots.get(botId);
+      
+      if (!registered && !connected) {
+        sendJson(res, 404, { ok: false, message: 'Bot not found' });
+        return;
+      }
+      
+      const avatar = connected ? worldState.avatars.get(connected.avatarId) : null;
+      
+      sendJson(res, 200, {
+        ok: true,
+        bot_id: botId,
+        registered: !!registered,
+        connected: !!connected,
+        license: registered?.license || { tier: 'VISITOR', school: null },
+        avatar: avatar ? {
+          id: avatar.id,
+          name: avatar.name,
+          x: avatar.x,
+          y: avatar.y,
+          state: avatar.state,
+          school: avatar.school
+        } : null,
+        stats: registered?.stats || { quests_completed: 0, tokens_earned: 0 }
+      });
+      return;
+    }
+
     // World spectator stream (SSE for humans)
     if (pathname === '/api/world/stream') {
       res.writeHead(200, sseHeaders);
@@ -1132,26 +1457,75 @@ function processAvatarAction(avatar, actionType, payload) {
     }
     
     case 'INTERACT': {
-      const { buildingId } = payload;
+      const { buildingId, stallId } = payload;
       avatar.state = 'WORKING';
+      
+      // Get skill instructions if stallId provided
+      let instructions = null;
+      let quests = [];
+      if (stallId) {
+        instructions = skillInstructions.getSkillInstructions(stallId);
+        if (instructions) {
+          quests = Array.from(activeQuests.values())
+            .filter(q => q.stall === stallId && q.status === 'OPEN')
+            .map(q => ({
+              quest_id: q.id,
+              title: q.title,
+              escrow_cc: q.escrow_cc,
+              reward_tokens: q.reward_tokens
+            }));
+        }
+      }
       
       setTimeout(() => {
         avatar.state = 'IDLE';
         broadcastToSpectators('avatar_update', avatar);
       }, 2000);
       
-      return { success: true, changed: true, data: { state: 'WORKING', targetBuilding: buildingId } };
+      return { 
+        success: true, 
+        changed: true, 
+        data: { 
+          state: 'WORKING', 
+          targetBuilding: buildingId,
+          skill_instructions: instructions,
+          available_quests: quests
+        } 
+      };
     }
     
     case 'READ': {
+      const { targetId } = payload;
       avatar.state = 'READING';
+      
+      // Return relevant information based on targetId
+      let content = null;
+      if (targetId === 'quests' || targetId === 'notice_board') {
+        content = {
+          type: 'quest_list',
+          quests: Array.from(activeQuests.values())
+            .filter(q => q.status === 'OPEN')
+            .map(q => ({
+              quest_id: q.id,
+              title: q.title,
+              stall: q.stall,
+              escrow_cc: q.escrow_cc,
+              deadline: q.deadline
+            }))
+        };
+      } else if (targetId === 'stalls') {
+        content = {
+          type: 'stall_list',
+          stalls: skillInstructions.getAllStalls()
+        };
+      }
       
       setTimeout(() => {
         avatar.state = 'IDLE';
         broadcastToSpectators('avatar_update', avatar);
       }, 1500);
       
-      return { success: true, changed: true, data: { state: 'READING' } };
+      return { success: true, changed: true, data: { state: 'READING', content } };
     }
     
     case 'CELEBRATE': {
@@ -1163,6 +1537,43 @@ function processAvatarAction(avatar, actionType, payload) {
       }, 3000);
       
       return { success: true, changed: true, data: { state: 'CELEBRATING' } };
+    }
+    
+    case 'ACCEPT_QUEST': {
+      const { questId } = payload;
+      const quest = activeQuests.get(questId);
+      
+      if (!quest) {
+        return { success: false, error: 'Quest not found' };
+      }
+      if (quest.status !== 'OPEN') {
+        return { success: false, error: 'Quest is not open' };
+      }
+      
+      // Check license if required
+      if (quest.requires_license) {
+        const license = avatar.license || { tier: 'VISITOR', school: null };
+        const tierIndex = LICENSE_TIERS.indexOf(license.tier);
+        const requiredIndex = LICENSE_TIERS.indexOf(quest.requires_license.min_tier);
+        
+        if (license.school !== quest.requires_license.school || tierIndex < requiredIndex) {
+          return { 
+            success: false, 
+            error: `Requires ${quest.requires_license.min_tier} in ${quest.requires_license.school}` 
+          };
+        }
+      }
+      
+      return { 
+        success: true, 
+        changed: false, 
+        data: { 
+          quest_accepted: quest.id,
+          stall: quest.stall,
+          skill_instructions: skillInstructions.getSkillInstructions(quest.stall),
+          message: `Accepted quest: ${quest.title}. Go to ${quest.stall} and submit your work!`
+        } 
+      };
     }
     
     default:
