@@ -487,12 +487,11 @@ class WorldApp {
     const avatars = Array.from(worldState.avatars.values());
     if (avatars.length === 0) return;
 
-    avatars.forEach((avatar, index) => {
+    avatars.forEach((avatar) => {
       this.clearWorkTask(avatar);
       this.clearReadTask(avatar);
       this.clearAvatarTextTimers(avatar);
       avatar.performAction(action);
-      this.animateAvatarCommand(action, avatar, index);
     });
 
     this.updateAvatarList();
@@ -549,12 +548,11 @@ class WorldApp {
 
     if (eligible.length === 0) return;
 
-    eligible.forEach((avatar, index) => {
+    eligible.forEach((avatar) => {
       this.clearWorkTask(avatar);
       this.clearReadTask(avatar);
       this.clearAvatarTextTimers(avatar);
       avatar.performAction(WORLD_ACTIONS.CELEBRATE);
-      this.animateAvatarCommand(WORLD_ACTIONS.CELEBRATE, avatar, index);
     });
 
     this.updateAvatarList();
@@ -1213,23 +1211,16 @@ class WorldApp {
     if (avatars.length === 0) return;
     
     const randomAvatar = avatars[Math.floor(Math.random() * avatars.length)];
-    const offset = WORLD_CONFIG.TILE_SIZE / 2;
-    
-    // Trigger celebration at avatar position
-    worldState.triggerCelebration(
-      randomAvatar.x + offset,
-      randomAvatar.y - offset,
-      '+1 IRON'
-    );
-    
-    // Add fake ledger event
-    worldState.processLedgerEvent({
+    const event = {
       id: `sim_${Date.now()}`,
       type: 'MINT',
       timestamp: new Date().toISOString(),
       actor_id: randomAvatar.name,
       tokens_minted: ['token_1']
-    });
+    };
+
+    worldState.processLedgerEvent(event);
+    this.handleLedgerEventVisualization(event);
   }
 
   /**

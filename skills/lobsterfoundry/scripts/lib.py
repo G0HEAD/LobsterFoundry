@@ -4,7 +4,7 @@ import urllib.request
 import urllib.error
 
 
-DEFAULT_BASE_URL = os.environ.get('LOBSTER_BASE_URL', 'http://localhost:5173')
+DEFAULT_BASE_URL = os.environ.get('LOBSTER_BASE_URL') or os.environ.get('LOBSTER_SERVER', 'http://localhost:5173')
 
 
 def request_json(url, method='GET', body=None, headers=None):

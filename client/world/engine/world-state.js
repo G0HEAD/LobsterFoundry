@@ -407,14 +407,6 @@ class WorldState {
     
     this.emit(WORLD_EVENTS.LEDGER_EVENT, { event });
     
-    // Trigger visual effects based on event type
-    if (event.type === 'MINT') {
-      // Find the author and trigger celebration
-      const actorAvatar = this.findAvatarByAccountId(event.actor_id);
-      if (actorAvatar) {
-        this.triggerCelebration(actorAvatar.x + 8, actorAvatar.y, '+1 Iron!');
-      }
-    }
   }
 
   /**
