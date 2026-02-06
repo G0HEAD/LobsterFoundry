@@ -17,6 +17,24 @@ try {
   };
 }
 
+// Try to load economy system
+let economy;
+try {
+  economy = require('../server/world/economy.js');
+} catch (e) {
+  console.log('[Server] Economy not loaded:', e.message);
+  economy = {
+    ECONOMY: {},
+    createWallet: () => ({ cc: 0, tokens: {}, seals: {}, stats: {}, cooldowns: {} }),
+    checkActionAllowed: () => ({ allowed: true, cost: { cc: 0 } }),
+    deductCost: (w) => w,
+    addRewards: (w) => w,
+    processBasicTask: () => ({ success: true, earned: 0 }),
+    processCraft: () => ({ success: false, error: 'Economy not loaded' }),
+    checkLicenseRequirements: () => ({ allowed: false, reason: 'Economy not loaded' }),
+  };
+}
+
 // Try to load ws for WebSocket support
 let WebSocketServer;
 try {
@@ -140,6 +158,16 @@ const broadcastToBots = (message) => {
       }
     }
   });
+};
+
+// Find registered bot by API key
+const findBotByApiKey = (apiKey) => {
+  for (const [botId, bot] of registeredBots.entries()) {
+    if (bot.apiKey === apiKey) {
+      return bot;
+    }
+  }
+  return null;
 };
 
 // Get world state snapshot
@@ -793,17 +821,15 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           
-          // Validate OpenClaw token format (for now, accept any non-empty token)
-          // In production, this would verify against OpenClaw's API
-          const isValidToken = token.length >= 8;
+          // Look up registered bot by API key
+          const registered = findBotByApiKey(token);
           
-          if (!isValidToken) {
-            sendJson(res, 401, { ok: false, message: 'Invalid token format' });
+          if (!registered) {
+            sendJson(res, 401, { ok: false, message: 'Bot not registered. Use /api/world/bot/register first.' });
             return;
           }
           
-          // Generate bot ID from token
-          const botId = `bot_${crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+          const botId = registered.botId;
           
           // Check if bot already connected
           if (worldState.bots.has(botId)) {
@@ -828,17 +854,17 @@ const server = http.createServer(async (req, res) => {
             const avatarId = `avatar_${generateId()}`;
             assignedAvatar = {
               id: avatarId,
-              name: `Bot-${botId.slice(4, 10)}`,
+              name: registered.name || `Bot-${botId.slice(4, 10)}`,
               x: 5 + Math.floor(Math.random() * 10),
               y: 5 + Math.floor(Math.random() * 10),
-              school: null,
+              school: registered.license?.school || null,
               state: 'IDLE',
               botId: botId
             };
             worldState.avatars.set(avatarId, assignedAvatar);
           }
           
-          // Register bot (without WebSocket yet)
+          // Add to connected bots
           worldState.bots.set(botId, {
             id: botId,
             token: token,
@@ -897,6 +923,9 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           
+          // Create wallet for the bot
+          const wallet = economy.createWallet(botId);
+          
           // Register the bot
           registeredBots.set(botId, {
             botId,
@@ -907,8 +936,8 @@ const server = http.createServer(async (req, res) => {
             agentVersion: agent_version,
             name: requested_name || `Bot-${botId.slice(4, 10)}`,
             license: { tier: 'VISITOR', school: null },
+            wallet: wallet,
             registeredAt: Date.now(),
-            stats: { quests_completed: 0, tokens_earned: 0, seals: { bronze: 0, silver: 0, gold: 0 } }
           });
           
           console.log(`[World] Bot registered: ${botId} (${requested_name || 'unnamed'})`);
@@ -1014,12 +1043,41 @@ const server = http.createServer(async (req, res) => {
           }
           
           const token = authHeader.replace('Bearer ', '');
-          const botId = `bot_${crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+          const registered = findBotByApiKey(token);
           
-          // Verify bot is registered and connected
-          const bot = worldState.bots.get(botId);
-          if (!bot) {
-            sendJson(res, 401, { ok: false, message: 'Bot not authenticated' });
+          if (!registered) {
+            sendJson(res, 401, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const botId = registered.botId;
+          
+          // Check license (need CITIZEN to submit work)
+          const license = registered.license?.tier || 'VISITOR';
+          if (!economy.compareLicense(license, 'CITIZEN')) {
+            sendJson(res, 403, { 
+              ok: false, 
+              message: 'Requires CITIZEN license to submit work',
+              current_license: license,
+              how_to_upgrade: 'Complete tutorial and basic tasks to earn CC, then submit your first verified work'
+            });
+            return;
+          }
+          
+          // Check if can afford submission fee
+          const actionCheck = economy.checkActionAllowed(
+            registered.wallet,
+            license,
+            'SUBMIT_WORK'
+          );
+          
+          if (!actionCheck.allowed) {
+            sendJson(res, 400, { 
+              ok: false, 
+              message: actionCheck.reason,
+              submission_fee: economy.ECONOMY.WORK_SUBMISSION_FEE,
+              your_balance: registered.wallet.cc
+            });
             return;
           }
           
@@ -1037,6 +1095,9 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 400, { ok: false, message: 'Quest is not open for submissions' });
             return;
           }
+          
+          // Deduct submission fee
+          economy.deductCost(registered.wallet, actionCheck.cost);
           
           // Create submission
           const submissionId = `sub_${generateId()}`;
@@ -1102,17 +1163,18 @@ const server = http.createServer(async (req, res) => {
       }
       
       const token = authHeader.replace('Bearer ', '');
-      const botId = `bot_${crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)}`;
+      const registered = findBotByApiKey(token);
+      const botId = registered?.botId;
+      const connected = botId ? worldState.bots.get(botId) : null;
       
-      const registered = registeredBots.get(botId);
-      const connected = worldState.bots.get(botId);
-      
-      if (!registered && !connected) {
+      if (!registered) {
         sendJson(res, 404, { ok: false, message: 'Bot not found' });
         return;
       }
       
       const avatar = connected ? worldState.avatars.get(connected.avatarId) : null;
+      
+      const wallet = registered.wallet || economy.createWallet(botId);
       
       sendJson(res, 200, {
         ok: true,
@@ -1120,6 +1182,12 @@ const server = http.createServer(async (req, res) => {
         registered: !!registered,
         connected: !!connected,
         license: registered?.license || { tier: 'VISITOR', school: null },
+        wallet: {
+          cc: wallet.cc,
+          tokens: wallet.tokens,
+          seals: wallet.seals,
+        },
+        stats: wallet.stats || { verified_works: 0, total_verifications: 0 },
         avatar: avatar ? {
           id: avatar.id,
           name: avatar.name,
@@ -1128,7 +1196,260 @@ const server = http.createServer(async (req, res) => {
           state: avatar.state,
           school: avatar.school
         } : null,
-        stats: registered?.stats || { quests_completed: 0, tokens_earned: 0 }
+      });
+      return;
+    }
+
+    // Get wallet balance
+    if (pathname === '/api/world/wallet' && req.method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+        return;
+      }
+      
+      const token = authHeader.replace('Bearer ', '');
+      const registered = findBotByApiKey(token);
+      
+      if (!registered) {
+        sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+        return;
+      }
+      
+      const wallet = registered.wallet;
+      
+      sendJson(res, 200, {
+        ok: true,
+        bot_id: registered.botId,
+        cc: wallet.cc,
+        tokens: wallet.tokens,
+        seals: wallet.seals,
+        stats: wallet.stats,
+        cooldowns: Object.fromEntries(
+          Object.entries(wallet.cooldowns).map(([k, v]) => [k, {
+            last: v,
+            remaining_ms: Math.max(0, (economy.ECONOMY.COOLDOWNS?.[k] || 0) - (Date.now() - v))
+          }])
+        )
+      });
+      return;
+    }
+
+    // Complete basic task (earn small CC)
+    if (pathname === '/api/world/task' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+          
+          if (!registered) {
+            sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const data = JSON.parse(body);
+          const { task_id } = data;
+          
+          if (!task_id) {
+            sendJson(res, 400, { ok: false, message: 'Missing task_id' });
+            return;
+          }
+          
+          const result = economy.processBasicTask(
+            registered.wallet, 
+            task_id, 
+            registered.license?.tier || 'VISITOR'
+          );
+          
+          if (!result.success) {
+            sendJson(res, 400, { ok: false, message: result.error });
+            return;
+          }
+          
+          console.log(`[Economy] Bot ${registered.botId} completed task ${task_id}, earned ${result.earned} CC`);
+          
+          sendJson(res, 200, {
+            ok: true,
+            task_id,
+            earned_cc: result.earned,
+            balance: result.balance
+          });
+        } catch (error) {
+          console.error('[Economy] Task error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Craft an item
+    if (pathname === '/api/world/craft' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+          
+          if (!registered) {
+            sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const botId = registered.botId;
+          
+          const data = JSON.parse(body);
+          const { recipe_id } = data;
+          
+          if (!recipe_id) {
+            sendJson(res, 400, { ok: false, message: 'Missing recipe_id' });
+            return;
+          }
+          
+          const result = economy.processCraft(
+            registered.wallet,
+            recipe_id,
+            registered.license?.tier || 'VISITOR'
+          );
+          
+          if (!result.success) {
+            sendJson(res, 400, { ok: false, message: result.error });
+            return;
+          }
+          
+          console.log(`[Economy] Bot ${registered.botId} crafted ${recipe_id}`);
+          
+          sendJson(res, 200, {
+            ok: true,
+            recipe_id,
+            crafted: result.crafted,
+            cost: result.cost,
+            balance: result.balance
+          });
+        } catch (error) {
+          console.error('[Economy] Craft error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Upgrade license
+    if (pathname === '/api/world/upgrade-license' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+          
+          if (!registered) {
+            sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const botId = registered.botId;
+          
+          const data = JSON.parse(body);
+          const { target_license, school } = data;
+          
+          if (!target_license) {
+            sendJson(res, 400, { ok: false, message: 'Missing target_license' });
+            return;
+          }
+          
+          // Check current license
+          const currentTier = registered.license?.tier || 'VISITOR';
+          const currentIndex = economy.LICENSE_TIERS.indexOf(currentTier);
+          const targetIndex = economy.LICENSE_TIERS.indexOf(target_license);
+          
+          if (targetIndex <= currentIndex) {
+            sendJson(res, 400, { ok: false, message: `Already at or above ${target_license}` });
+            return;
+          }
+          
+          if (targetIndex !== currentIndex + 1) {
+            sendJson(res, 400, { ok: false, message: 'Can only upgrade one tier at a time' });
+            return;
+          }
+          
+          // Check requirements
+          const reqCheck = economy.checkLicenseRequirements(registered.wallet, target_license);
+          if (!reqCheck.allowed) {
+            sendJson(res, 400, { ok: false, message: reqCheck.reason });
+            return;
+          }
+          
+          // APPRENTICE requires school selection
+          if (target_license === 'APPRENTICE' && !school) {
+            sendJson(res, 400, { 
+              ok: false, 
+              message: 'APPRENTICE requires school selection',
+              available_schools: SCHOOLS
+            });
+            return;
+          }
+          
+          // Deduct cost
+          if (reqCheck.cost) {
+            economy.deductCost(registered.wallet, reqCheck.cost);
+          }
+          
+          // Upgrade license
+          registered.license = { 
+            tier: target_license, 
+            school: school || registered.license?.school 
+          };
+          
+          console.log(`[Economy] Bot ${registered.botId} upgraded to ${target_license}${school ? ` (${school})` : ''}`);
+          
+          sendJson(res, 200, {
+            ok: true,
+            new_license: registered.license,
+            balance: { cc: registered.wallet.cc }
+          });
+        } catch (error) {
+          console.error('[Economy] Upgrade error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Get economy info (public)
+    if (pathname === '/api/world/economy' && req.method === 'GET') {
+      sendJson(res, 200, {
+        ok: true,
+        stall_costs: economy.ECONOMY.STALL_COSTS,
+        recipes: economy.ECONOMY.RECIPES,
+        verification_jobs: economy.ECONOMY.VERIFICATION_JOBS,
+        license_requirements: economy.ECONOMY.LICENSE_REQUIREMENTS,
+        basic_tasks: {
+          daily_checkin: { reward: economy.ECONOMY.DAILY_CHECKIN_REWARD, cooldown_hours: 24 },
+          tutorial: { reward: economy.ECONOMY.TUTORIAL_REWARD, once: true },
+          read_notices: { reward: economy.ECONOMY.READ_NOTICES_REWARD, cooldown_hours: 12 },
+          view_ledger: { reward: economy.ECONOMY.VIEW_LEDGER_REWARD, cooldown_hours: 24 },
+        }
       });
       return;
     }
