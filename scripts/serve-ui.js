@@ -170,6 +170,104 @@ const findBotByApiKey = (apiKey) => {
   return null;
 };
 
+// Mint tokens for a verified submission
+const mintTokensForSubmission = (submission) => {
+  const submitter = registeredBots.get(submission.bot_id);
+  if (!submitter) {
+    console.error(`[Mint] Submitter ${submission.bot_id} not found`);
+    return { success: false, error: 'Submitter not found' };
+  }
+  
+  const quest = activeQuests.get(submission.quest_id);
+  if (!quest) {
+    console.error(`[Mint] Quest ${submission.quest_id} not found`);
+    return { success: false, error: 'Quest not found' };
+  }
+  
+  // Determine rewards based on stamp count and types
+  const stamps = submission.verification_jobs.filter(j => j.decision === 'PASS');
+  const stampTypes = stamps.map(j => j.type);
+  
+  let ccReward = 0;
+  const tokenRewards = {};
+  
+  // Base reward: ORE
+  if (stamps.length >= 1) {
+    tokenRewards.ore = (tokenRewards.ore || 0) + 1;
+    ccReward += 10;
+  }
+  
+  // Quality + Evidence = extra ORE
+  if (stampTypes.includes('QUALITY') && stampTypes.includes('EVIDENCE')) {
+    tokenRewards.ore = (tokenRewards.ore || 0) + 1;
+    ccReward += 15;
+  }
+  
+  // Safety stamp = IRON
+  if (stampTypes.includes('SAFETY')) {
+    tokenRewards.iron = (tokenRewards.iron || 0) + 1;
+    ccReward += 25;
+  }
+  
+  // Audit stamp = STEEL
+  if (stampTypes.includes('AUDIT')) {
+    tokenRewards.steel = (tokenRewards.steel || 0) + 1;
+    ccReward += 50;
+  }
+  
+  // Apply license bonuses
+  const license = submitter.license?.tier || 'VISITOR';
+  const bonuses = economy.LICENSE_BONUSES[license] || { cc: 0, tokens: 0 };
+  
+  ccReward = Math.floor(ccReward * (1 + bonuses.cc));
+  for (const token of Object.keys(tokenRewards)) {
+    tokenRewards[token] = Math.floor(tokenRewards[token] * (1 + bonuses.tokens)) || tokenRewards[token];
+  }
+  
+  // Apply rewards to wallet
+  submitter.wallet.cc += ccReward;
+  for (const [token, amount] of Object.entries(tokenRewards)) {
+    submitter.wallet.tokens[token] = (submitter.wallet.tokens[token] || 0) + amount;
+  }
+  submitter.wallet.stats.verified_works++;
+  
+  // Check for license upgrade eligibility
+  if (submitter.license?.tier === 'VISITOR' && submitter.wallet.stats.verified_works >= 1) {
+    submitter.license.tier = 'CITIZEN';
+    console.log(`[Mint] Bot ${submission.bot_id} upgraded to CITIZEN!`);
+  }
+  
+  // Create ledger event
+  const ledgerEvent = {
+    id: `mint_${generateId()}`,
+    type: 'MINT',
+    timestamp: new Date().toISOString(),
+    submission_id: submission.id,
+    quest_id: submission.quest_id,
+    recipient: submission.bot_id,
+    cc_rewarded: ccReward,
+    tokens_minted: tokenRewards,
+    stamps: stampTypes
+  };
+  
+  // Broadcast to world
+  broadcastToSpectators('mint', ledgerEvent);
+  broadcastToBots({ type: 'MINT', data: ledgerEvent });
+  
+  console.log(`[Mint] Bot ${submission.bot_id} received ${ccReward} CC + ${JSON.stringify(tokenRewards)}`);
+  
+  return {
+    success: true,
+    cc_rewarded: ccReward,
+    tokens_minted: tokenRewards,
+    new_balance: {
+      cc: submitter.wallet.cc,
+      tokens: submitter.wallet.tokens
+    },
+    new_license: submitter.license?.tier
+  };
+};
+
 // Get world state snapshot
 const getWorldSnapshot = () => ({
   avatars: Array.from(worldState.avatars.values()),
@@ -1436,6 +1534,298 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ============================================
+    // VERIFICATION ENDPOINTS
+    // ============================================
+
+    // List open verification jobs
+    if (pathname === '/api/world/verification/jobs' && req.method === 'GET') {
+      const jobs = [];
+      
+      // Collect jobs from pending submissions
+      for (const [subId, submission] of pendingSubmissions.entries()) {
+        for (const job of submission.verification_jobs) {
+          if (job.status === 'OPEN') {
+            jobs.push({
+              job_id: job.id,
+              submission_id: subId,
+              quest_id: submission.quest_id,
+              type: job.type,
+              pay_cc: job.pay_cc,
+              stake_cc: job.stake_cc,
+              submitted_at: submission.submitted_at,
+              artifacts_count: submission.artifacts?.length || 0,
+              claims_count: submission.claims?.length || 0
+            });
+          }
+        }
+      }
+      
+      sendJson(res, 200, { ok: true, jobs });
+      return;
+    }
+
+    // Accept a verification job
+    if (pathname === '/api/world/verification/accept' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+          
+          if (!registered) {
+            sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const botId = registered.botId;
+          const license = registered.license || { tier: 'VISITOR', school: null };
+          
+          // Check license (need APPRENTICE in VERIFICATION)
+          if (!economy.compareLicense(license.tier, 'APPRENTICE')) {
+            sendJson(res, 403, { 
+              ok: false, 
+              message: 'Requires APPRENTICE license',
+              current_license: license.tier
+            });
+            return;
+          }
+          
+          if (license.school !== 'VERIFICATION') {
+            sendJson(res, 403, { 
+              ok: false, 
+              message: 'Requires VERIFICATION school',
+              current_school: license.school
+            });
+            return;
+          }
+          
+          const data = JSON.parse(body);
+          const { job_id } = data;
+          
+          if (!job_id) {
+            sendJson(res, 400, { ok: false, message: 'Missing job_id' });
+            return;
+          }
+          
+          // Find the job
+          let foundJob = null;
+          let foundSubmission = null;
+          
+          for (const [subId, submission] of pendingSubmissions.entries()) {
+            for (const job of submission.verification_jobs) {
+              if (job.id === job_id) {
+                foundJob = job;
+                foundSubmission = submission;
+                break;
+              }
+            }
+            if (foundJob) break;
+          }
+          
+          if (!foundJob) {
+            sendJson(res, 404, { ok: false, message: 'Job not found' });
+            return;
+          }
+          
+          if (foundJob.status !== 'OPEN') {
+            sendJson(res, 400, { ok: false, message: 'Job already claimed' });
+            return;
+          }
+          
+          // Check if verifier is the submitter (conflict of interest)
+          if (foundSubmission.bot_id === botId) {
+            sendJson(res, 400, { ok: false, message: 'Cannot verify your own work' });
+            return;
+          }
+          
+          // Check stake
+          const jobConfig = economy.ECONOMY.VERIFICATION_JOBS[foundJob.type];
+          const stake = jobConfig?.stake || 5;
+          
+          if (registered.wallet.cc < stake) {
+            sendJson(res, 400, { 
+              ok: false, 
+              message: `Insufficient CC for stake (need ${stake}, have ${registered.wallet.cc})`
+            });
+            return;
+          }
+          
+          // Deduct stake
+          registered.wallet.cc -= stake;
+          
+          // Claim job
+          foundJob.status = 'IN_PROGRESS';
+          foundJob.verifier_id = botId;
+          foundJob.claimed_at = new Date().toISOString();
+          foundJob.stake_locked = stake;
+          
+          console.log(`[Verification] Bot ${botId} accepted job ${job_id} (${foundJob.type})`);
+          
+          // Return submission details for review
+          sendJson(res, 200, {
+            ok: true,
+            job_id,
+            type: foundJob.type,
+            stake_locked: stake,
+            submission: {
+              id: foundSubmission.id,
+              quest_id: foundSubmission.quest_id,
+              artifacts: foundSubmission.artifacts,
+              claims: foundSubmission.claims,
+              submitted_at: foundSubmission.submitted_at
+            }
+          });
+        } catch (error) {
+          console.error('[Verification] Accept error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
+    // Submit a verification stamp
+    if (pathname === '/api/world/verification/stamp' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+          
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+          
+          if (!registered) {
+            sendJson(res, 404, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+          
+          const botId = registered.botId;
+          
+          const data = JSON.parse(body);
+          const { job_id, decision, evidence, report } = data;
+          
+          if (!job_id || !decision) {
+            sendJson(res, 400, { ok: false, message: 'Missing job_id or decision' });
+            return;
+          }
+          
+          if (!['PASS', 'FAIL', 'ABSTAIN'].includes(decision)) {
+            sendJson(res, 400, { ok: false, message: 'Decision must be PASS, FAIL, or ABSTAIN' });
+            return;
+          }
+          
+          // Find the job
+          let foundJob = null;
+          let foundSubmission = null;
+          
+          for (const [subId, submission] of pendingSubmissions.entries()) {
+            for (const job of submission.verification_jobs) {
+              if (job.id === job_id) {
+                foundJob = job;
+                foundSubmission = submission;
+                break;
+              }
+            }
+            if (foundJob) break;
+          }
+          
+          if (!foundJob) {
+            sendJson(res, 404, { ok: false, message: 'Job not found' });
+            return;
+          }
+          
+          if (foundJob.status !== 'IN_PROGRESS') {
+            sendJson(res, 400, { ok: false, message: 'Job not in progress' });
+            return;
+          }
+          
+          if (foundJob.verifier_id !== botId) {
+            sendJson(res, 403, { ok: false, message: 'You are not the assigned verifier' });
+            return;
+          }
+          
+          // Process stamp
+          const jobConfig = economy.ECONOMY.VERIFICATION_JOBS[foundJob.type];
+          
+          foundJob.status = 'COMPLETED';
+          foundJob.decision = decision;
+          foundJob.evidence = evidence;
+          foundJob.report = report;
+          foundJob.completed_at = new Date().toISOString();
+          
+          let earnedCC = 0;
+          
+          if (decision === 'ABSTAIN') {
+            // Return stake, no pay
+            registered.wallet.cc += foundJob.stake_locked;
+          } else {
+            // Return stake + pay
+            earnedCC = jobConfig?.pay || 15;
+            registered.wallet.cc += foundJob.stake_locked + earnedCC;
+            
+            // Update verifier stats
+            registered.wallet.stats.total_verifications++;
+            registered.wallet.stats.correct_verifications++; // Assume correct for now
+          }
+          
+          console.log(`[Verification] Bot ${botId} stamped job ${job_id}: ${decision}`);
+          
+          // Check if all jobs for this submission are complete
+          const allComplete = foundSubmission.verification_jobs.every(j => j.status === 'COMPLETED');
+          const allPassed = foundSubmission.verification_jobs.every(j => j.decision === 'PASS');
+          
+          let mintResult = null;
+          
+          if (allComplete) {
+            if (allPassed) {
+              // All passed - mint tokens!
+              foundSubmission.status = 'VERIFIED';
+              mintResult = mintTokensForSubmission(foundSubmission);
+              console.log(`[Verification] Submission ${foundSubmission.id} VERIFIED - minting tokens`);
+            } else {
+              foundSubmission.status = 'REJECTED';
+              console.log(`[Verification] Submission ${foundSubmission.id} REJECTED`);
+            }
+          }
+          
+          // Broadcast to world
+          broadcastToSpectators('stamp', {
+            job_id,
+            submission_id: foundSubmission.id,
+            decision,
+            verifier: botId,
+            submission_status: foundSubmission.status
+          });
+          
+          sendJson(res, 200, {
+            ok: true,
+            job_id,
+            decision,
+            earned_cc: earnedCC,
+            stake_returned: foundJob.stake_locked,
+            submission_status: foundSubmission.status,
+            mint_result: mintResult
+          });
+        } catch (error) {
+          console.error('[Verification] Stamp error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
     // Get economy info (public)
     if (pathname === '/api/world/economy' && req.method === 'GET') {
       sendJson(res, 200, {
@@ -1685,8 +2075,9 @@ if (WebSocketServer) {
               return;
             }
             
-            // Process action
-            const result = processAvatarAction(avatar, message.actionType, message.payload);
+            // Process action (accept both 'actionType' and 'action' field names)
+            const actionType = message.actionType || message.action;
+            const result = processAvatarAction(avatar, actionType, message.payload);
             
             ws.send(JSON.stringify({
               type: 'ACTION_RESULT',
