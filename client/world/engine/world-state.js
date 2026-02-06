@@ -248,10 +248,21 @@ class WorldState {
    */
   updateParticles(deltaTime) {
     this.particles = this.particles.filter(particle => {
+      const dt = deltaTime / 1000;
       particle.life -= deltaTime;
-      particle.x += particle.vx;
+      if (particle.driftAmplitude) {
+        particle.driftPhase = (particle.driftPhase || 0) + (particle.driftSpeed || 2) * dt;
+        particle.baseX = (particle.baseX ?? particle.x) + particle.vx;
+        particle.x = particle.baseX + Math.sin(particle.driftPhase) * particle.driftAmplitude;
+      } else {
+        particle.x += particle.vx;
+      }
+
       particle.y += particle.vy;
       particle.vy += particle.gravity || 0;
+      if (particle.rotationSpeed) {
+        particle.rotation = (particle.rotation || 0) + particle.rotationSpeed;
+      }
       return particle.life > 0;
     });
   }
@@ -316,12 +327,17 @@ class WorldState {
       type,
       x,
       y,
-      vx: config.vx || (Math.random() - 0.5) * 2,
-      vy: config.vy || -Math.random() * 3,
-      gravity: config.gravity || 0.1,
-      life: config.life || 1000,
-      size: config.size || 3,
-      color: config.color || PALETTE.YELLOW
+      vx: config.vx ?? (Math.random() - 0.5) * 2,
+      vy: config.vy ?? -Math.random() * 3,
+      gravity: config.gravity ?? 0.1,
+      life: config.life ?? 1000,
+      size: config.size ?? 3,
+      color: config.color ?? PALETTE.YELLOW,
+      rotation: config.rotation ?? 0,
+      rotationSpeed: config.rotationSpeed ?? 0,
+      driftAmplitude: config.driftAmplitude ?? 0,
+      driftSpeed: config.driftSpeed ?? 0,
+      baseX: config.driftAmplitude ? x : null
     };
     this.particles.push(particle);
   }

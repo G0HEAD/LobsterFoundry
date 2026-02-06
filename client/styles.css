@@ -998,6 +998,139 @@ button:focus-visible {
   border-bottom: 1px solid var(--edge);
 }
 
+.signup-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 48px;
+  padding: 90px 6vw 60px;
+  align-items: center;
+  position: relative;
+}
+
+.signup-shell::before {
+  content: '';
+  position: absolute;
+  inset: -60px 0 0;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(56, 183, 100, 0.2), transparent 55%),
+    radial-gradient(circle at 85% 15%, rgba(255, 170, 51, 0.18), transparent 50%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.signup-intro {
+  display: grid;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.signup-card {
+  position: relative;
+  z-index: 1;
+  background: rgba(18, 18, 32, 0.92);
+  border: 1px solid rgba(56, 183, 100, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-strong);
+}
+
+.choice-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-radius: 999px;
+  background: rgba(10, 10, 20, 0.6);
+  border: 1px solid var(--edge);
+  padding: 4px;
+  gap: 6px;
+}
+
+.choice-tab {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 10px 12px;
+  border-radius: 999px;
+  font-family: 'VT323', monospace;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.choice-tab.is-active {
+  background: rgba(56, 183, 100, 0.25);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(56, 183, 100, 0.3);
+}
+
+.choice-panel {
+  display: none;
+  padding-top: 18px;
+  gap: 12px;
+}
+
+.choice-panel.is-active {
+  display: grid;
+}
+
+.choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.choice-note {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.curl-box {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(100, 200, 150, 0.3);
+  background: rgba(8, 8, 16, 0.7);
+}
+
+.curl-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.curl-field {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(100, 200, 150, 0.2);
+  background: rgba(10, 10, 20, 0.8);
+  color: #e0e0e0;
+  font-family: 'VT323', monospace;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  resize: none;
+}
+
+.curl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.curl-status {
+  min-height: 1.2em;
+  font-size: 0.85rem;
+  color: rgba(56, 183, 100, 0.9);
+}
+
+.curl-status.is-error {
+  color: var(--pixel-red);
+}
+
 @media (max-width: 880px) {
   .timeline-row {
     grid-template-columns: 1fr;
@@ -1005,6 +1138,21 @@ button:focus-visible {
 
   .feed-layout {
     grid-template-columns: 1fr;
+  }
+
+  .signup-shell {
+    grid-template-columns: 1fr;
+    padding-top: 70px;
+  }
+
+  .choice-tabs {
+    grid-template-columns: 1fr;
+    border-radius: 16px;
+  }
+
+  .choice-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .callout-card {

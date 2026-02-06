@@ -44,8 +44,6 @@ try {
   console.log('[Server] Artifact storage not loaded:', e.message);
   artifactStore = null;
 }
-}
-
 // Try to load ws for WebSocket support
 let WebSocketServer;
 try {
@@ -64,6 +62,25 @@ const portValue =
   '5173';
 const port = Number(portValue);
 const checkpointPath = path.join(root, 'data', 'runner-checkpoint.json');
+const signupsPath = path.join(root, 'data', 'signups.json');
+
+const loadSignups = async () => {
+  const data = await fs.readFile(signupsPath, 'utf8').catch(async () => {
+    await fs.mkdir(path.join(root, 'data'), { recursive: true });
+    await fs.writeFile(signupsPath, '[]', 'utf8');
+    return '[]';
+  });
+  try {
+    return JSON.parse(data || '[]');
+  } catch (error) {
+    return [];
+  }
+};
+
+const saveSignups = async (signups) => {
+  await fs.mkdir(path.join(root, 'data'), { recursive: true });
+  await fs.writeFile(signupsPath, JSON.stringify(signups, null, 2), 'utf8');
+};
 
 // ============================================
 // WORLD STATE MANAGEMENT
@@ -187,6 +204,19 @@ const findBotByApiKey = (apiKey) => {
   return null;
 };
 
+const resolveImprovementBounty = (stallId, improvementType) => {
+  if (!stallId || !improvementType) {
+    return null;
+  }
+  const stall = skillInstructions.getSkillInstructions(stallId);
+  const bounty = stall?.skill_instructions?.improvement_bounty;
+  if (!bounty?.enabled) {
+    return null;
+  }
+  const types = bounty.types || {};
+  return types[improvementType] || null;
+};
+
 // Mint tokens for a verified submission
 const mintTokensForSubmission = (submission) => {
   const submitter = registeredBots.get(submission.bot_id);
@@ -194,11 +224,14 @@ const mintTokensForSubmission = (submission) => {
     console.error(`[Mint] Submitter ${submission.bot_id} not found`);
     return { success: false, error: 'Submitter not found' };
   }
-  
-  const quest = activeQuests.get(submission.quest_id);
-  if (!quest) {
-    console.error(`[Mint] Quest ${submission.quest_id} not found`);
-    return { success: false, error: 'Quest not found' };
+
+  const isImprovement = submission.type === 'IMPROVEMENT' || Boolean(submission.improvement);
+  if (!isImprovement) {
+    const quest = activeQuests.get(submission.quest_id);
+    if (!quest) {
+      console.error(`[Mint] Quest ${submission.quest_id} not found`);
+      return { success: false, error: 'Quest not found' };
+    }
   }
   
   // Determine rewards based on stamp count and types
@@ -207,29 +240,39 @@ const mintTokensForSubmission = (submission) => {
   
   let ccReward = 0;
   const tokenRewards = {};
-  
-  // Base reward: ORE
-  if (stamps.length >= 1) {
-    tokenRewards.ore = (tokenRewards.ore || 0) + 1;
-    ccReward += 10;
-  }
-  
-  // Quality + Evidence = extra ORE
-  if (stampTypes.includes('QUALITY') && stampTypes.includes('EVIDENCE')) {
-    tokenRewards.ore = (tokenRewards.ore || 0) + 1;
-    ccReward += 15;
-  }
-  
-  // Safety stamp = IRON
-  if (stampTypes.includes('SAFETY')) {
-    tokenRewards.iron = (tokenRewards.iron || 0) + 1;
-    ccReward += 25;
-  }
-  
-  // Audit stamp = STEEL
-  if (stampTypes.includes('AUDIT')) {
-    tokenRewards.steel = (tokenRewards.steel || 0) + 1;
-    ccReward += 50;
+
+  if (isImprovement) {
+    const improvementMeta = submission.improvement || {};
+    const stallId = improvementMeta.stall_id || submission.stall_id;
+    const improvementType = improvementMeta.improvement_type || improvementMeta.type;
+    const bounty = resolveImprovementBounty(stallId, improvementType);
+    if (bounty?.reward_cc) {
+      ccReward += bounty.reward_cc;
+    }
+  } else {
+    // Base reward: ORE
+    if (stamps.length >= 1) {
+      tokenRewards.ore = (tokenRewards.ore || 0) + 1;
+      ccReward += 10;
+    }
+    
+    // Quality + Evidence = extra ORE
+    if (stampTypes.includes('QUALITY') && stampTypes.includes('EVIDENCE')) {
+      tokenRewards.ore = (tokenRewards.ore || 0) + 1;
+      ccReward += 15;
+    }
+    
+    // Safety stamp = IRON
+    if (stampTypes.includes('SAFETY')) {
+      tokenRewards.iron = (tokenRewards.iron || 0) + 1;
+      ccReward += 25;
+    }
+    
+    // Audit stamp = STEEL
+    if (stampTypes.includes('AUDIT')) {
+      tokenRewards.steel = (tokenRewards.steel || 0) + 1;
+      ccReward += 50;
+    }
   }
   
   // Apply license bonuses
@@ -264,7 +307,14 @@ const mintTokensForSubmission = (submission) => {
     recipient: submission.bot_id,
     cc_rewarded: ccReward,
     tokens_minted: tokenRewards,
-    stamps: stampTypes
+    stamps: stampTypes,
+    ...(isImprovement
+      ? {
+          improvement_type:
+            submission.improvement?.improvement_type || submission.improvement?.type || null,
+          improvement_stall: submission.improvement?.stall_id || submission.stall_id || null
+        }
+      : {})
   };
   
   // Persist changes to storage
@@ -1187,6 +1237,165 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Submit a skill improvement
+    if (pathname === '/api/skills/improvement' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const authHeader = req.headers.authorization;
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            sendJson(res, 401, { ok: false, message: 'Missing authorization' });
+            return;
+          }
+
+          const token = authHeader.replace('Bearer ', '');
+          const registered = findBotByApiKey(token);
+
+          if (!registered) {
+            sendJson(res, 401, { ok: false, message: 'Bot not registered' });
+            return;
+          }
+
+          const botId = registered.botId;
+          const license = registered.license?.tier || 'VISITOR';
+          if (!economy.compareLicense(license, 'CITIZEN')) {
+            sendJson(res, 403, {
+              ok: false,
+              message: 'Requires CITIZEN license to submit improvements',
+              current_license: license
+            });
+            return;
+          }
+
+          const actionCheck = economy.checkActionAllowed(
+            registered.wallet,
+            license,
+            'SUBMIT_WORK'
+          );
+
+          if (!actionCheck.allowed) {
+            sendJson(res, 400, {
+              ok: false,
+              message: actionCheck.reason,
+              submission_fee: economy.ECONOMY.WORK_SUBMISSION_FEE,
+              your_balance: registered.wallet.cc
+            });
+            return;
+          }
+
+          const data = JSON.parse(body);
+          const { stall_id, improvement_type, description, artifacts, claims } = data;
+
+          if (!stall_id || !improvement_type) {
+            sendJson(res, 400, { ok: false, message: 'Missing stall_id or improvement_type' });
+            return;
+          }
+
+          const stall = skillInstructions.getSkillInstructions(stall_id);
+          if (!stall) {
+            sendJson(res, 404, { ok: false, message: 'Stall not found' });
+            return;
+          }
+
+          const bounty = resolveImprovementBounty(stall_id, improvement_type);
+          if (!bounty) {
+            sendJson(res, 400, { ok: false, message: 'Improvement type not supported for this stall' });
+            return;
+          }
+
+          economy.deductCost(registered.wallet, actionCheck.cost);
+
+          const submissionId = `sub_${generateId()}`;
+          const submission = {
+            id: submissionId,
+            quest_id: `improvement_${stall_id}`,
+            bot_id: botId,
+            type: 'IMPROVEMENT',
+            stall_id: stall_id,
+            improvement: {
+              stall_id: stall_id,
+              improvement_type: improvement_type,
+              description: description || ''
+            },
+            artifacts: artifacts || [],
+            claims: claims || [],
+            requested_tokens: [],
+            submitted_at: new Date().toISOString(),
+            status: 'PENDING_VERIFICATION',
+            verification_jobs: []
+          };
+
+          const jobTypes = ['QUALITY', 'EVIDENCE'];
+          if (improvement_type === 'CODE') {
+            jobTypes.push('SAFETY');
+          }
+
+          jobTypes.forEach(jobType => {
+            const jobId = `job_${generateId()}`;
+            submission.verification_jobs.push({
+              id: jobId,
+              type: jobType,
+              status: 'OPEN',
+              pay_cc: jobType === 'QUALITY' ? 25 : jobType === 'EVIDENCE' ? 30 : 35,
+              stake_cc: 5
+            });
+          });
+
+          pendingSubmissions.set(submissionId, submission);
+
+          let storedArtifactIds = [];
+          if (artifactStore) {
+            for (const artifact of (artifacts || [])) {
+              const stored = artifactStore.storeArtifact(artifact.content, {
+                name: artifact.name,
+                type: artifact.type || 'text',
+                submitter: botId,
+                stall_id: stall_id,
+                submission_id: submissionId,
+                improvement_type: improvement_type
+              });
+              storedArtifactIds.push(stored.id);
+            }
+
+            artifactStore.storeSubmission({
+              ...submission,
+              artifact_ids: storedArtifactIds
+            });
+
+            artifactStore.appendToLedger({
+              type: 'IMPROVEMENT_SUBMITTED',
+              submission_id: submissionId,
+              stall_id: stall_id,
+              improvement_type: improvement_type,
+              bot_id: botId,
+              artifact_count: storedArtifactIds.length
+            });
+          }
+
+          broadcastToSpectators('submission', {
+            submission_id: submissionId,
+            stall_id: stall_id,
+            improvement_type: improvement_type,
+            bot_id: botId
+          });
+
+          sendJson(res, 200, {
+            ok: true,
+            submission_id: submissionId,
+            artifact_ids: storedArtifactIds,
+            status: 'PENDING_VERIFICATION',
+            verification_jobs: submission.verification_jobs,
+            message: 'Improvement submitted! Awaiting verification stamps.'
+          });
+        } catch (error) {
+          console.error('[World] Improvement submit error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
     // Submit work
     if (pathname === '/api/world/submit' && req.method === 'POST') {
       let body = '';
@@ -2058,6 +2267,77 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Signup request (public)
+    if (pathname === '/api/signup' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body || '{}');
+          const name = String(data.full_name || data.name || '').trim();
+          const email = String(data.email || '').trim();
+          const role = String(data.role || '').trim();
+          const interest = String(data.interest || '').trim();
+          const organization = String(data.organization || '').trim();
+          const message = String(data.message || '').trim();
+          const charterAccepted = Boolean(data.charter || data.accepted_charter || data.consent);
+
+          if (!name || !email || !role) {
+            sendJson(res, 400, { ok: false, message: 'Name, email, and role are required.' });
+            return;
+          }
+
+          if (!/^\S+@\S+\.\S+$/.test(email)) {
+            sendJson(res, 400, { ok: false, message: 'Please provide a valid email address.' });
+            return;
+          }
+
+          if (!charterAccepted) {
+            sendJson(res, 400, { ok: false, message: 'Charter consent is required.' });
+            return;
+          }
+
+          const signups = await loadSignups();
+          const exists = signups.some((signup) =>
+            String(signup.email || '').toLowerCase() === email.toLowerCase()
+          );
+
+          if (exists) {
+            sendJson(res, 409, { ok: false, message: 'This email is already in the queue.' });
+            return;
+          }
+
+          const signup = {
+            id: `signup_${generateId()}`,
+            name,
+            email,
+            role,
+            interest,
+            organization,
+            message,
+            accepted_charter: true,
+            created_at: new Date().toISOString(),
+            source: req.headers.referer || null,
+            user_agent: req.headers['user-agent'] || null,
+            ip: req.socket.remoteAddress || null
+          };
+
+          signups.push(signup);
+          await saveSignups(signups);
+
+          sendJson(res, 200, {
+            ok: true,
+            signup_id: signup.id,
+            message: 'Signup received. We will be in touch soon.'
+          });
+        } catch (error) {
+          console.error('[Signup] Error:', error);
+          sendJson(res, 500, { ok: false, message: 'Internal server error' });
+        }
+      });
+      return;
+    }
+
     // World spectator stream (SSE for humans)
     if (pathname === '/api/world/stream') {
       res.writeHead(200, sseHeaders);
@@ -2148,16 +2428,22 @@ const server = http.createServer(async (req, res) => {
     
     // Spectator portal (human read-only view)
     if (pathname === '/spectator' || pathname === '/spectator/' || pathname === '/watch' || pathname === '/watch/') {
+      pathname = '/client/world/world.html';
+    }
+    if (pathname === '/spectator-legacy' || pathname === '/spectator-legacy/') {
       pathname = '/client/spectator/spectator.html';
     }
     
     // Redirect common pages to /client/ folder
-    // Root goes to spectator portal by default (humans land here)
-    if (pathname === '/' || pathname === '/index.html') {
-      pathname = '/client/spectator/spectator.html';
+    // Root goes to the landing page
+    if (pathname === '/' || pathname === '/index.html' || pathname === '/landing' || pathname === '/landing/') {
+      pathname = '/client/index.html';
     }
     if (pathname === '/feed.html') {
       pathname = '/client/feed.html';
+    }
+    if (pathname === '/signup' || pathname === '/signup/' || pathname === '/signup.html') {
+      pathname = '/client/signup.html';
     }
     if (pathname === '/dashboard.html') {
       pathname = '/client/dashboard.html';

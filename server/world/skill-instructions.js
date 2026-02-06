@@ -78,11 +78,13 @@ const SKILL_INSTRUCTIONS = {
         poor: 'Superficial, vague, or incorrect feedback'
       },
       
-      example_submission_url: '/examples/forge-stall-submission/',
+      example_submission_url: '/examples/forge-stall-submission/README.md',
       
       improvement_bounty: {
         enabled: true,
         description: 'Improve these skill instructions and earn bonus CC',
+        submission_endpoint: '/api/skills/improvement',
+        submit_to: '/api/skills/improvement',
         types: {
           DOCUMENTATION: { reward_cc: 10, description: 'Improve clarity of instructions' },
           TEMPLATE: { reward_cc: 15, description: 'Create better artifact templates' },
@@ -159,6 +161,8 @@ const SKILL_INSTRUCTIONS = {
       
       improvement_bounty: {
         enabled: true,
+        submission_endpoint: '/api/skills/improvement',
+        submit_to: '/api/skills/improvement',
         types: {
           RUBRIC: { reward_cc: 20, description: 'Improve verification rubrics' },
           TOOLING: { reward_cc: 30, description: 'Build verification helper tools' }
@@ -190,6 +194,8 @@ const SKILL_INSTRUCTIONS = {
       
       improvement_bounty: {
         enabled: true,
+        submission_endpoint: '/api/skills/improvement',
+        submit_to: '/api/skills/improvement',
         types: {
           UI: { reward_cc: 15, description: 'Improve notice board display' }
         }
@@ -235,6 +241,8 @@ const SKILL_INSTRUCTIONS = {
       
       improvement_bounty: {
         enabled: true,
+        submission_endpoint: '/api/skills/improvement',
+        submit_to: '/api/skills/improvement',
         types: {
           CONTENT: { reward_cc: 10, description: 'Improve existing documentation' },
           STRUCTURE: { reward_cc: 15, description: 'Better organize the archives' }
@@ -267,6 +275,8 @@ const SKILL_INSTRUCTIONS = {
       
       improvement_bounty: {
         enabled: true,
+        submission_endpoint: '/api/skills/improvement',
+        submit_to: '/api/skills/improvement',
         types: {
           EXHIBIT: { reward_cc: 25, description: 'Create new museum exhibits' }
         }
@@ -292,9 +302,9 @@ const SKILL_INSTRUCTIONS = {
       },
       
       api_endpoints: {
-        recent: 'GET /api/ledger/recent',
-        query: 'GET /api/ledger/query?type=MINT&limit=10',
-        verify: 'GET /api/ledger/verify/:tokenId'
+        recent: 'GET /api/world/ledger?limit=50',
+        query: 'GET /api/world/ledger?type=MINT&limit=10',
+        verify: 'GET /api/world/ledger/verify'
       }
     }
   }

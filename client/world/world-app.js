@@ -8,6 +8,7 @@ class WorldApp {
     this.initialized = false;
     this.isSpectatorMode = true; // Default to spectator mode for humans
     this.viewerCount = 0;
+    this.devMode = false;
     
     // DOM elements
     this.elements = {};
@@ -113,6 +114,7 @@ class WorldApp {
       
       // Dev controls
       devControls: document.querySelector('.dev-controls'),
+      devToggle: document.querySelector('[data-dev-toggle]'),
       
       // Bot panel
       botPanel: document.getElementById('bot-panel'),
@@ -180,6 +182,12 @@ class WorldApp {
         this.handleDevAction(action);
       });
     });
+
+    if (this.elements.devToggle) {
+      this.elements.devToggle.addEventListener('click', () => {
+        this.toggleDevMode();
+      });
+    }
     
     // District selection
     document.querySelectorAll('[data-district]').forEach(item => {
@@ -202,6 +210,16 @@ class WorldApp {
     });
     
     worldState.on(WORLD_EVENTS.AVATAR_DESPAWN, (data) => {
+      if (data?.avatar) {
+        this.clearAvatarFx(data.avatar);
+      }
+      this.updateAvatarList();
+    });
+
+    worldState.on(WORLD_EVENTS.AVATAR_ACTION, (data) => {
+      if (data?.avatar) {
+        this.handleAvatarActionFx(data.avatar, data.action);
+      }
       this.updateAvatarList();
     });
     
@@ -227,6 +245,16 @@ class WorldApp {
     });
   }
 
+  toggleDevMode() {
+    this.devMode = !this.devMode;
+    document.body.classList.toggle('dev-mode', this.devMode);
+    if (this.elements.devToggle) {
+      this.elements.devToggle.classList.toggle('is-active', this.devMode);
+      this.elements.devToggle.setAttribute('aria-pressed', this.devMode ? 'true' : 'false');
+      this.elements.devToggle.textContent = this.devMode ? 'Dev Mode: On' : 'Dev Mode: Off';
+    }
+  }
+
   /**
    * Connect to spectator stream for real-time updates
    */
@@ -249,7 +277,11 @@ class WorldApp {
     spectatorStream.on('avatarUpdate', (data) => {
       let avatar = worldState.getAvatar(data.id);
       if (avatar) {
+        const previousState = avatar.state;
         avatar.deserialize(data);
+        if (data.state && data.state !== previousState) {
+          this.handleAvatarStateFx(avatar, data.state);
+        }
       } else {
         // Create new avatar if not exists
         avatar = new Avatar({
@@ -260,6 +292,9 @@ class WorldApp {
           school: data.school
         });
         worldState.addAvatar(avatar);
+        if (data.state) {
+          this.handleAvatarStateFx(avatar, data.state);
+        }
       }
       this.updateAvatarList();
     });
@@ -358,9 +393,39 @@ class WorldApp {
         break;
         
       case 'spawn-avatar':
-        const avatarCount = worldState.avatars.size;
-        const newAvatar = AvatarFactory.createDemo(avatarCount);
-        worldState.addAvatar(newAvatar);
+        this.spawnAvatar();
+        break;
+
+      case 'despawn-avatar':
+        this.despawnRandomAvatar();
+        break;
+
+      case 'command-walk':
+        this.commandWalk();
+        break;
+
+      case 'command-work':
+        this.commandWork(4200);
+        break;
+
+      case 'command-read':
+        this.commandRead(3200);
+        break;
+
+      case 'command-celebrate':
+        this.commandCelebrate({
+          radius: WORLD_CONFIG.TILE_SIZE * 3,
+          minNeighbors: 2,
+          duration: 1800
+        });
+        break;
+
+      case 'command-verify':
+        this.commandAvatarAction(WORLD_ACTIONS.SUBMIT_STAMP, 2400);
+        break;
+
+      case 'command-converse':
+        this.commandAvatarAction(WORLD_ACTIONS.CONVERSE, 2400);
         break;
         
       case 'simulate-mint':
@@ -374,6 +439,770 @@ class WorldApp {
       default:
         console.log('[WorldApp] Unknown dev action:', action);
     }
+  }
+
+  spawnAvatar() {
+    const avatar = this.createRandomAvatar(worldState.avatars.size);
+    worldState.addAvatar(avatar);
+    this.animateAvatarSpawn(avatar, false);
+    return avatar;
+  }
+
+  despawnRandomAvatar() {
+    const avatars = Array.from(worldState.avatars.values()).filter(avatar => !avatar.botId);
+    if (avatars.length === 0) return;
+    const target = avatars[Math.floor(Math.random() * avatars.length)];
+    this.clearWorkTask(target);
+    this.clearReadTask(target);
+    this.clearAvatarTextTimers(target);
+    this.animateAvatarDespawn(target);
+    worldState.removeAvatar(target.id);
+  }
+
+  commandWalk() {
+    const avatars = Array.from(worldState.avatars.values());
+    avatars.forEach((avatar, index) => {
+      this.clearWorkTask(avatar);
+      this.clearReadTask(avatar);
+      this.clearAvatarTextTimers(avatar);
+      const tile = this.getRandomWalkableTile();
+      avatar.moveTo(tile.x, tile.y);
+      this.animateAvatarCommand('WALK', avatar, index);
+    });
+
+    this.updateAvatarList();
+  }
+
+  commandAvatarAction(action, duration = 0) {
+    if (action === WORLD_ACTIONS.SUBMIT_WORK) {
+      this.commandWork(duration || 4200);
+      return;
+    }
+
+    if (action === WORLD_ACTIONS.READ) {
+      this.commandRead(duration || 3200);
+      return;
+    }
+
+    const avatars = Array.from(worldState.avatars.values());
+    if (avatars.length === 0) return;
+
+    avatars.forEach((avatar, index) => {
+      this.clearWorkTask(avatar);
+      this.clearReadTask(avatar);
+      this.clearAvatarTextTimers(avatar);
+      avatar.performAction(action);
+      this.animateAvatarCommand(action, avatar, index);
+    });
+
+    this.updateAvatarList();
+
+    if (duration > 0) {
+      if (this.actionResetTimeout) {
+        clearTimeout(this.actionResetTimeout);
+      }
+      this.actionResetTimeout = setTimeout(() => {
+        avatars.forEach(avatar => avatar.performAction());
+        this.updateAvatarList();
+      }, duration);
+    }
+  }
+
+  commandWork(duration = 4200) {
+    const avatars = Array.from(worldState.avatars.values());
+    if (avatars.length === 0) return;
+
+    avatars.forEach((avatar, index) => {
+      this.clearWorkTask(avatar);
+      this.clearReadTask(avatar);
+      this.clearAvatarTextTimers(avatar);
+      avatar.performAction(WORLD_ACTIONS.SUBMIT_WORK);
+      this.startWorkTask(avatar, duration, index);
+    });
+
+    this.updateAvatarList();
+  }
+
+  commandRead(duration = 3200) {
+    const avatars = Array.from(worldState.avatars.values());
+    if (avatars.length === 0) return;
+
+    avatars.forEach((avatar, index) => {
+      this.clearWorkTask(avatar);
+      this.clearReadTask(avatar);
+      this.clearAvatarTextTimers(avatar);
+      avatar.performAction(WORLD_ACTIONS.READ);
+      this.startReadTask(avatar, duration, index);
+    });
+
+    this.updateAvatarList();
+  }
+
+  commandCelebrate({ radius, minNeighbors = 2, duration = 1800 } = {}) {
+    const avatars = Array.from(worldState.avatars.values());
+    if (avatars.length === 0) return;
+
+    const radiusPx = radius ?? WORLD_CONFIG.TILE_SIZE * 3;
+    const eligible = avatars.filter(avatar => {
+      return this.countNearbyAvatars(avatar, avatars, radiusPx) >= minNeighbors;
+    });
+
+    if (eligible.length === 0) return;
+
+    eligible.forEach((avatar, index) => {
+      this.clearWorkTask(avatar);
+      this.clearReadTask(avatar);
+      this.clearAvatarTextTimers(avatar);
+      avatar.performAction(WORLD_ACTIONS.CELEBRATE);
+      this.animateAvatarCommand(WORLD_ACTIONS.CELEBRATE, avatar, index);
+    });
+
+    this.updateAvatarList();
+
+    if (duration > 0) {
+      if (this.actionResetTimeout) {
+        clearTimeout(this.actionResetTimeout);
+      }
+      this.actionResetTimeout = setTimeout(() => {
+        eligible.forEach(avatar => avatar.performAction());
+        this.updateAvatarList();
+      }, duration);
+    }
+  }
+
+  handleAvatarStateFx(avatar, state) {
+    if (!avatar || !state) return;
+
+    if (state === AVATAR_STATES.IDLE) {
+      this.clearAvatarFx(avatar);
+      return;
+    }
+
+    const stateToAction = {
+      [AVATAR_STATES.WORKING]: WORLD_ACTIONS.SUBMIT_WORK,
+      [AVATAR_STATES.CRAFTING]: WORLD_ACTIONS.CRAFT,
+      [AVATAR_STATES.VERIFYING]: WORLD_ACTIONS.SUBMIT_STAMP,
+      [AVATAR_STATES.READING]: WORLD_ACTIONS.READ,
+      [AVATAR_STATES.CELEBRATING]: WORLD_ACTIONS.CELEBRATE,
+      [AVATAR_STATES.CONVERSING]: WORLD_ACTIONS.CONVERSE,
+    };
+
+    const action = stateToAction[state];
+    if (!action) return;
+
+    if (action === WORLD_ACTIONS.SUBMIT_WORK && !avatar.workTask) {
+      this.startWorkTask(avatar, 2800);
+      return;
+    }
+
+    if (action === WORLD_ACTIONS.READ && !avatar.readTask) {
+      this.startReadTask(avatar, 2400);
+      return;
+    }
+
+    this.handleAvatarActionFx(avatar, action);
+  }
+
+  handleAvatarActionFx(avatar, action, index = 0) {
+    if (!avatar) return;
+    this.animateAvatarCommand(action, avatar, index);
+  }
+
+  animateAvatarCommand(action, avatar, index = 0) {
+    if (!avatar) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const jitter = (index % 3 - 1) * (tile * 0.05);
+    const center = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.6 });
+    const head = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.1 });
+    const feet = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.88 });
+
+    const effectPoint = {
+      x: center.x + jitter,
+      y: center.y + jitter
+    };
+
+    switch (action) {
+      case 'WALK': {
+        this.spawnParticleBurst(PARTICLE_TYPES.SMOKE, {
+          x: feet.x,
+          y: feet.y,
+          count: 6,
+          color: PALETTE.LIGHT_GRAY,
+          life: 600,
+          size: 2,
+          gravity: 0.05
+        });
+        setTimeout(() => {
+          this.spawnParticleBurst(PARTICLE_TYPES.SMOKE, {
+            x: feet.x + tile * 0.15,
+            y: feet.y,
+            count: 4,
+            color: PALETTE.GRAY,
+            life: 500,
+            size: 2,
+            gravity: 0.04
+          });
+        }, 180);
+        break;
+      }
+      case WORLD_ACTIONS.SUBMIT_WORK: {
+        this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+          x: effectPoint.x,
+          y: effectPoint.y - tile * 0.1,
+          count: 6,
+          color: PALETTE.ORANGE,
+          life: 700,
+          size: 3
+        });
+        break;
+      }
+      case WORLD_ACTIONS.CRAFT: {
+        this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+          x: effectPoint.x,
+          y: effectPoint.y - tile * 0.15,
+          count: 10,
+          color: PALETTE.ORANGE,
+          life: 900,
+          size: 3
+        });
+        this.spawnParticleBurst(PARTICLE_TYPES.SMOKE, {
+          x: feet.x,
+          y: feet.y,
+          count: 6,
+          color: PALETTE.DARK_GRAY,
+          life: 1000,
+          size: 3,
+          gravity: -0.02
+        });
+        this.scheduleAvatarText(avatar, 'CRAFT', PALETTE.ORANGE, {
+          x: effectPoint.x,
+          y: head.y - tile * 0.2
+        }, {
+          baseDelay: 120,
+          jitter: 140,
+          minGap: 100
+        });
+        break;
+      }
+      case WORLD_ACTIONS.SUBMIT_STAMP:
+      case WORLD_ACTIONS.ACCEPT_JOB: {
+        this.spawnParticleBurst(PARTICLE_TYPES.STAMP, {
+          x: effectPoint.x,
+          y: effectPoint.y - tile * 0.1,
+          count: 7,
+          color: PALETTE.YELLOW,
+          life: 800,
+          size: 3
+        });
+        this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+          x: effectPoint.x,
+          y: effectPoint.y,
+          count: 5,
+          color: PALETTE.PEACH,
+          life: 700,
+          size: 2
+        });
+        this.scheduleAvatarText(avatar, 'STAMP', PALETTE.PEACH, {
+          x: effectPoint.x,
+          y: head.y - tile * 0.2
+        }, {
+          baseDelay: 130,
+          jitter: 150,
+          minGap: 110
+        });
+        break;
+      }
+      case WORLD_ACTIONS.READ: {
+        this.spawnParticleBurst(PARTICLE_TYPES.STAR, {
+          x: head.x,
+          y: head.y,
+          count: 6,
+          color: PALETTE.LAVENDER,
+          life: 1100,
+          size: 3
+        });
+        break;
+      }
+      case WORLD_ACTIONS.CONVERSE: {
+        this.scheduleAvatarText(avatar, '...', PALETTE.CYAN, {
+          x: head.x,
+          y: head.y - tile * 0.35
+        }, {
+          baseDelay: 120,
+          jitter: 160,
+          minGap: 120
+        });
+        this.spawnParticleBurst(PARTICLE_TYPES.STAR, {
+          x: head.x,
+          y: head.y - tile * 0.1,
+          count: 4,
+          color: PALETTE.CYAN,
+          life: 700,
+          size: 2
+        });
+        break;
+      }
+      case WORLD_ACTIONS.CELEBRATE: {
+        const celebratePoint = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.35 });
+        this.spawnBalloonBurst(celebratePoint, {
+          count: 7,
+          colors: [PALETTE.YELLOW, PALETTE.YELLOW, PALETTE.YELLOW, PALETTE.PINK]
+        });
+        this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+          x: celebratePoint.x,
+          y: celebratePoint.y - tile * 0.05,
+          count: 6,
+          color: PALETTE.YELLOW,
+          life: 700,
+          size: 2
+        });
+        this.scheduleCelebrateText(avatar, celebratePoint, index);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  animateAvatarSpawn(avatar, isSquad = false) {
+    if (!avatar) return;
+    const point = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.6 });
+    this.spawnParticleBurst(PARTICLE_TYPES.STAR, {
+      x: point.x,
+      y: point.y,
+      count: isSquad ? 6 : 12,
+      color: avatar.color || PALETTE.CYAN,
+      life: 900,
+      size: 3
+    });
+
+    if (!isSquad) {
+      this.scheduleAvatarText(avatar, 'JOINED', PALETTE.GREEN, point, {
+        baseDelay: 140,
+        jitter: 180,
+        minGap: 120
+      });
+    }
+  }
+
+  animateAvatarDespawn(avatar) {
+    if (!avatar) return;
+    const point = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.6 });
+    this.spawnParticleBurst(PARTICLE_TYPES.SMOKE, {
+      x: point.x,
+      y: point.y,
+      count: 12,
+      color: PALETTE.DARK_GRAY,
+      life: 1000,
+      size: 3,
+      gravity: -0.02
+    });
+
+    this.scheduleAvatarText(avatar, 'EXIT', PALETTE.GRAY, point, {
+      baseDelay: 130,
+      jitter: 180,
+      minGap: 120
+    });
+  }
+
+  startWorkTask(avatar, duration, index = 0) {
+    if (!avatar) return;
+
+    const start = Date.now();
+    avatar.workTask = {
+      start,
+      duration,
+      pulseTimer: null,
+      completeTimer: null
+    };
+
+    this.scheduleWorkPulse(avatar, index);
+
+    avatar.workTask.completeTimer = setTimeout(() => {
+      this.finishWorkTask(avatar);
+    }, duration);
+  }
+
+  scheduleWorkPulse(avatar, index = 0) {
+    if (!avatar || !avatar.workTask) return;
+
+    const task = avatar.workTask;
+    const interval = 520 + (index % 4) * 90;
+    const tile = WORLD_CONFIG.TILE_SIZE;
+
+    task.pulseTimer = setTimeout(() => {
+      if (!avatar.workTask) return;
+
+      const anvil = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.6 });
+      const feet = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.9 });
+
+      this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+        x: anvil.x,
+        y: anvil.y - tile * 0.12,
+        count: 6,
+        color: PALETTE.ORANGE,
+        life: 800,
+        size: 3
+      });
+
+      this.spawnParticleBurst(PARTICLE_TYPES.SMOKE, {
+        x: feet.x,
+        y: feet.y,
+        count: 3,
+        color: PALETTE.DARK_GRAY,
+        life: 900,
+        size: 3,
+        gravity: -0.02
+      });
+
+      const elapsed = Date.now() - task.start;
+      if (elapsed < task.duration - 600) {
+        this.scheduleWorkPulse(avatar, index + 1);
+      }
+    }, interval);
+  }
+
+  finishWorkTask(avatar) {
+    if (!avatar || !avatar.workTask) return;
+
+    const completePoint = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.45 });
+    const labelPoint = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.05 });
+
+    this.spawnParticleBurst(PARTICLE_TYPES.SPARK, {
+      x: completePoint.x,
+      y: completePoint.y,
+      count: 10,
+      color: PALETTE.GREEN,
+      life: 900,
+      size: 3
+    });
+
+    this.scheduleAvatarText(avatar, 'WORK COMPLETE', PALETTE.GREEN, labelPoint, {
+      baseDelay: 150,
+      jitter: 200,
+      minGap: 120
+    });
+
+    this.clearWorkTask(avatar);
+    avatar.performAction();
+    this.updateAvatarList();
+  }
+
+  startReadTask(avatar, duration, index = 0) {
+    if (!avatar) return;
+
+    const start = Date.now();
+    avatar.readTask = {
+      start,
+      duration,
+      pulseTimer: null,
+      completeTimer: null
+    };
+
+    this.scheduleReadPulse(avatar, index);
+
+    avatar.readTask.completeTimer = setTimeout(() => {
+      this.finishReadTask(avatar);
+    }, duration);
+  }
+
+  scheduleReadPulse(avatar, index = 0) {
+    if (!avatar || !avatar.readTask) return;
+
+    const task = avatar.readTask;
+    const interval = 1400 + Math.random() * 500 + (index % 3) * 120;
+    const tile = WORLD_CONFIG.TILE_SIZE;
+
+    task.pulseTimer = setTimeout(() => {
+      if (!avatar.readTask) return;
+
+      const head = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.05 });
+
+      const sheetCount = 2 + (Math.random() > 0.6 ? 1 : 0);
+      for (let i = 0; i < sheetCount; i++) {
+        const offsetX = (Math.random() - 0.5) * tile * 0.4;
+        const offsetY = (Math.random() - 0.3) * tile * 0.1;
+        const size = 2.6 + Math.random() * 1.2;
+        const drift = tile * (0.18 + Math.random() * 0.12);
+        const wind = Math.random() > 0.5 ? 1 : -1;
+
+        worldState.spawnParticle(PARTICLE_TYPES.PAPER, head.x + offsetX, head.y + offsetY, {
+          color: PALETTE.LAVENDER,
+          size,
+          life: 1800 + Math.random() * 800,
+          gravity: 0.002 + Math.random() * 0.004,
+          vx: wind * (0.6 + Math.random() * 0.5),
+          vy: -0.05 + Math.random() * 0.12,
+          rotation: (Math.random() - 0.5) * 0.6,
+          rotationSpeed: (Math.random() - 0.5) * 0.04,
+          driftAmplitude: drift,
+          driftSpeed: 1.6 + Math.random() * 1.6
+        });
+      }
+
+      const elapsed = Date.now() - task.start;
+      if (elapsed < task.duration - 900) {
+        this.scheduleReadPulse(avatar, index + 1);
+      }
+    }, interval);
+  }
+
+  finishReadTask(avatar) {
+    if (!avatar || !avatar.readTask) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const head = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.1 });
+    const label = this.getAvatarEffectPoint(avatar, { x: 0.5, y: -0.05 });
+
+    this.spawnParticleBurst(PARTICLE_TYPES.STAR, {
+      x: head.x,
+      y: head.y,
+      count: 6,
+      color: PALETTE.LAVENDER,
+      life: 900,
+      size: 3
+    });
+
+    this.scheduleAvatarText(avatar, 'READING COMPLETE', PALETTE.LAVENDER, {
+      x: label.x,
+      y: label.y - tile * 0.2
+    }, {
+      baseDelay: 160,
+      jitter: 200,
+      minGap: 120
+    });
+
+    this.clearReadTask(avatar);
+    avatar.performAction();
+    this.updateAvatarList();
+  }
+
+  clearReadTask(avatar) {
+    if (!avatar || !avatar.readTask) return;
+
+    if (avatar.readTask.pulseTimer) {
+      clearTimeout(avatar.readTask.pulseTimer);
+    }
+
+    if (avatar.readTask.completeTimer) {
+      clearTimeout(avatar.readTask.completeTimer);
+    }
+
+    avatar.readTask = null;
+  }
+
+  clearWorkTask(avatar) {
+    if (!avatar || !avatar.workTask) return;
+
+    if (avatar.workTask.pulseTimer) {
+      clearTimeout(avatar.workTask.pulseTimer);
+    }
+
+    if (avatar.workTask.completeTimer) {
+      clearTimeout(avatar.workTask.completeTimer);
+    }
+
+    avatar.workTask = null;
+  }
+
+  clearAvatarFx(avatar) {
+    this.clearWorkTask(avatar);
+    this.clearReadTask(avatar);
+    this.clearAvatarTextTimers(avatar);
+  }
+
+  spawnParticleBurst(type, options = {}) {
+    const count = options.count ?? 12;
+    const centerX = options.x ?? WORLD_CONFIG.CANVAS_SIZE * 0.5;
+    const centerY = options.y ?? WORLD_CONFIG.CANVAS_SIZE * 0.45;
+    const color = options.color ?? PALETTE.YELLOW;
+    const gravity = options.gravity ?? 0.12;
+
+    for (let i = 0; i < count; i++) {
+      worldState.spawnParticle(type, centerX, centerY, {
+        color,
+        size: options.size ?? 3,
+        life: options.life ?? 1200,
+        gravity,
+        vx: (Math.random() - 0.5) * 4,
+        vy: -Math.random() * 3 - 1
+      });
+    }
+
+    if (options.label) {
+      this.scheduleWorldText(options.label, options.labelColor ?? color, {
+        x: centerX,
+        y: centerY - 10
+      }, {
+        baseDelay: 120,
+        jitter: 160,
+        minGap: 100
+      });
+    }
+  }
+
+  spawnBalloonBurst(point, options = {}) {
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const count = options.count ?? 6;
+    const colors = options.colors ?? [PALETTE.YELLOW];
+    const baseX = point.x;
+    const baseY = point.y - tile * 0.1;
+
+    for (let i = 0; i < count; i++) {
+      const spreadX = (Math.random() - 0.5) * tile * 0.9;
+      const spreadY = (Math.random() - 0.5) * tile * 0.4;
+      const size = 3.5 + Math.random() * 2;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+
+      worldState.spawnParticle(PARTICLE_TYPES.BALLOON, baseX + spreadX, baseY + spreadY, {
+        color,
+        size,
+        life: 2200 + Math.random() * 900,
+        gravity: -0.012,
+        vx: (Math.random() - 0.5) * 0.2,
+        vy: -0.25 - Math.random() * 0.15,
+        driftAmplitude: tile * (0.06 + Math.random() * 0.08),
+        driftSpeed: 0.9 + Math.random() * 1.2
+      });
+    }
+  }
+
+  getCelebrateText() {
+    const lines = [
+      'HOORAY!',
+      'BOOYAH!',
+      'PARTY TIME!',
+      'CHEERS!',
+      'LET\'S GO!',
+      'WOOHOO!',
+      'NICE WORK!',
+      'HIGH FIVE!',
+      'VICTORY!',
+      'BRAVO!'
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+  }
+
+  scheduleCelebrateText(avatar, point, index = 0) {
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const text = this.getCelebrateText();
+    const baseDelay = 160 + (index % 4) * 80;
+
+    this.scheduleAvatarText(avatar, text, PALETTE.YELLOW, point, {
+      baseDelay,
+      jitter: 180,
+      minGap: 120,
+      offset: { x: tile * 0.35, y: tile * 0.12 }
+    });
+  }
+
+  scheduleAvatarText(avatar, text, color, point, options = {}) {
+    if (!avatar) return;
+    if (!avatar.textTimers) {
+      avatar.textTimers = new Set();
+    }
+
+    this.scheduleText(text, color, point, options, avatar.textTimers);
+  }
+
+  scheduleWorldText(text, color, point, options = {}) {
+    this.scheduleText(text, color, point, options, this.worldTextTimers);
+  }
+
+  scheduleText(text, color, point, options = {}, timerSet) {
+    if (!text || !point) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const baseDelay = options.baseDelay ?? 120;
+    const jitter = options.jitter ?? 160;
+    const minGap = options.minGap ?? 100;
+    const offset = options.offset ?? { x: tile * 0.35, y: tile * 0.12 };
+
+    const now = Date.now();
+    let scheduledAt = now + baseDelay + Math.random() * jitter;
+
+    if (this.lastTextTime && scheduledAt < this.lastTextTime + minGap) {
+      scheduledAt = this.lastTextTime + minGap;
+    }
+
+    this.lastTextTime = scheduledAt;
+
+    const timer = setTimeout(() => {
+      const offsetX = (Math.random() - 0.5) * offset.x;
+      const offsetY = (Math.random() - 0.5) * offset.y;
+      worldState.spawnFloatingText(text, point.x + offsetX, point.y + offsetY, color);
+      timerSet?.delete(timer);
+    }, Math.max(0, scheduledAt - now));
+
+    timerSet?.add(timer);
+  }
+
+  clearAvatarTextTimers(avatar) {
+    if (!avatar?.textTimers) return;
+    avatar.textTimers.forEach(timer => clearTimeout(timer));
+    avatar.textTimers.clear();
+  }
+
+  clearWorldTextTimers() {
+    if (!this.worldTextTimers.size) return;
+    this.worldTextTimers.forEach(timer => clearTimeout(timer));
+    this.worldTextTimers.clear();
+  }
+
+  getAvatarEffectPoint(avatar, offset = { x: 0.5, y: 0.6 }) {
+    return {
+      x: avatar.x + WORLD_CONFIG.TILE_SIZE * offset.x,
+      y: avatar.y + WORLD_CONFIG.TILE_SIZE * offset.y
+    };
+  }
+
+  getRandomWalkableTile() {
+    for (let i = 0; i < 40; i++) {
+      const x = Math.floor(Math.random() * WORLD_CONFIG.WORLD_WIDTH);
+      const y = Math.floor(Math.random() * WORLD_CONFIG.WORLD_HEIGHT);
+      if (worldState.isWalkable(x, y)) {
+        return { x, y };
+      }
+    }
+    return { x: 1, y: 1 };
+  }
+
+  countNearbyAvatars(avatar, avatars, radiusPx) {
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const centerX = avatar.x + tile * 0.5;
+    const centerY = avatar.y + tile * 0.5;
+    const maxDist = radiusPx * radiusPx;
+
+    let count = 0;
+    for (const other of avatars) {
+      if (other.id === avatar.id) continue;
+      const otherX = other.x + tile * 0.5;
+      const otherY = other.y + tile * 0.5;
+      const dx = otherX - centerX;
+      const dy = otherY - centerY;
+      if (dx * dx + dy * dy <= maxDist) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  createRandomAvatar(index = 0) {
+    const schools = Object.keys(SCHOOL_COLORS);
+    const titles = ['Runner', 'Verifier', 'Crafter', 'Archivist', 'Scout', 'Builder'];
+    const school = schools[Math.floor(Math.random() * schools.length)];
+    const tile = this.getRandomWalkableTile();
+    const seed = Math.floor(Math.random() * 9000) + 1000;
+
+    return new Avatar({
+      id: `demo_${Date.now()}_${seed}_${index}`,
+      name: `${titles[index % titles.length]}-${seed}`,
+      x: tile.x,
+      y: tile.y,
+      school
+    });
   }
 
   /**
@@ -408,6 +1237,13 @@ class WorldApp {
    */
   resetWorld() {
     // Clear avatars
+    worldState.avatars.forEach((avatar) => {
+      this.clearAvatarFx(avatar);
+      if (avatar.actionTimeout) {
+        clearTimeout(avatar.actionTimeout);
+        avatar.actionTimeout = null;
+      }
+    });
     worldState.avatars.clear();
     
     // Clear events

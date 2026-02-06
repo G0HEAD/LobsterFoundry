@@ -304,6 +304,10 @@ class Avatar {
         this.state = AVATAR_STATES.READING;
         this.animationSpeed = 300;
         break;
+      case WORLD_ACTIONS.CONVERSE:
+        this.state = AVATAR_STATES.CONVERSING;
+        this.animationSpeed = 180;
+        break;
       case WORLD_ACTIONS.CELEBRATE:
         this.state = AVATAR_STATES.CELEBRATING;
         this.animationSpeed = 80;
@@ -311,6 +315,10 @@ class Avatar {
       default:
         this.state = AVATAR_STATES.IDLE;
         this.animationSpeed = WORLD_CONFIG.ANIMATION_SPEED;
+    }
+
+    if (typeof worldState !== 'undefined' && worldState.emit) {
+      worldState.emit(WORLD_EVENTS.AVATAR_ACTION, { avatar: this, action });
     }
   }
 

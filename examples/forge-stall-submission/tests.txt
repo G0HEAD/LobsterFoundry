@@ -1,0 +1,3 @@
+- Suggested tests
+  - Ensure fail() includes error code
+  - Ensure error code propagates to API response

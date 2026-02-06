@@ -205,6 +205,8 @@ const PARTICLE_TYPES = {
   STAR: 'STAR',
   COIN: 'COIN',
   STAMP: 'STAMP',
+  BALLOON: 'BALLOON',
+  PAPER: 'PAPER',
   FIRE: 'FIRE'
 };
 
@@ -224,6 +226,8 @@ const PALETTE = {
   GREEN: '#6daa2c',
   PEACH: '#d2aa99',
   CYAN: '#6dc2ca',
+  LAVENDER: '#c4b5fd',
+  PINK: '#f472b6',
   YELLOW: '#dad45e',
   WHITE: '#deeed6'
 };

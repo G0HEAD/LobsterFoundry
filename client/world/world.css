@@ -412,10 +412,6 @@ body {
   transform: perspective(100px) rotateX(-3deg) rotateY(5deg);
 }
 
-.stand-leg.right {
-  transform: perspective(100px) rotateX(-5deg) rotateY(10deg);
-}
-
 /* ============================================
    INFO PANEL (Side Panel for Spectators)
    ============================================ */
@@ -499,6 +495,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .avatar-placeholder,
@@ -585,10 +584,73 @@ body {
    DEV CONTROLS
    ============================================ */
 
+.dev-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dev-header h3 {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.dev-toggle {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.75);
+  font-family: 'VT323', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dev-toggle.is-active {
+  background: rgba(56, 183, 100, 0.2);
+  border-color: rgba(56, 183, 100, 0.6);
+  color: #fff;
+}
+
 .dev-controls {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.dev-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dev-group h4 {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 9px;
+  color: var(--pixel-gold);
+  margin: 0;
+}
+
+.dev-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
+}
+
+.dev-only {
+  display: none;
+}
+
+body.dev-mode .dev-only {
+  display: flex;
 }
 
 .dev-btn {
@@ -601,6 +663,7 @@ body {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  text-align: left;
 }
 
 .dev-btn:hover {

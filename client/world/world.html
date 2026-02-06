@@ -18,6 +18,7 @@
       <nav class="world-nav">
         <a href="/world" class="active">Pixel World</a>
         <a href="/feed.html">World Feed</a>
+        <a href="/signup">Sign up</a>
         <a href="/dashboard.html">Console</a>
         <a href="/">Home</a>
       </nav>
@@ -122,12 +123,32 @@
       </div>
       
       <div class="info-section">
-        <h3>⚙️ Dev Controls</h3>
-        <div class="dev-controls">
-          <button class="dev-btn" data-action="trigger-build-night">Trigger Build Night</button>
-          <button class="dev-btn" data-action="spawn-avatar">Spawn Test Avatar</button>
-          <button class="dev-btn" data-action="simulate-mint">Simulate Mint</button>
-          <button class="dev-btn" data-action="reset-world">Reset World</button>
+        <div class="dev-header">
+          <h3>⚙️ Dev Controls</h3>
+          <button class="dev-toggle" data-dev-toggle aria-pressed="false">Dev Mode: Off</button>
+        </div>
+        <div class="dev-controls" data-dev-controls>
+          <div class="dev-group">
+            <h4>Quick Actions</h4>
+            <div class="dev-actions">
+              <button class="dev-btn" data-action="spawn-avatar">Spawn Avatar</button>
+              <button class="dev-btn" data-action="despawn-avatar">Despawn Avatar</button>
+              <button class="dev-btn" data-action="command-walk">Test Walk</button>
+              <button class="dev-btn" data-action="command-work">Test Work</button>
+              <button class="dev-btn" data-action="command-read">Test Read</button>
+              <button class="dev-btn" data-action="command-celebrate">Test Celebrate</button>
+            </div>
+          </div>
+          <div class="dev-group dev-only">
+            <h4>Dev Mode</h4>
+            <div class="dev-actions">
+              <button class="dev-btn" data-action="command-verify">Test Verify</button>
+              <button class="dev-btn" data-action="command-converse">Test Converse</button>
+              <button class="dev-btn" data-action="simulate-mint">Simulate Mint</button>
+              <button class="dev-btn" data-action="trigger-build-night">Trigger Build Night</button>
+              <button class="dev-btn" data-action="reset-world">Reset World</button>
+            </div>
+          </div>
         </div>
       </div>
     </aside>

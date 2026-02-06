@@ -1,0 +1,10 @@
+diff --git a/server/runner/kernel.ts b/server/runner/kernel.ts
+index 1111111..2222222 100644
+--- a/server/runner/kernel.ts
++++ b/server/runner/kernel.ts
+@@ -120,7 +120,7 @@ export class RunnerKernel {
+   private fail(code: string, message: string) {
+-    return { ok: false, error: message };
++    return { ok: false, error: message, code };
+   }
+ }

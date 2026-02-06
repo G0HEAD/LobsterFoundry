@@ -1733,3 +1733,136 @@ function shiftColor(hex, amount) {
   const b = Math.max(0, Math.min(255, parseInt(normalized.slice(4, 6), 16) + amount));
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
+
+const signupForm = document.querySelector('[data-signup-form]');
+const signupStatus = document.querySelector('[data-signup-status]');
+if (signupForm) {
+  signupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (signupStatus) {
+      signupStatus.textContent = '';
+      signupStatus.classList.remove('is-error');
+    }
+
+    const submitButton = signupForm.querySelector('[data-signup-submit]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Sending...';
+    }
+
+    try {
+      const formData = new FormData(signupForm);
+      const payload = Object.fromEntries(formData.entries());
+      payload.charter = formData.get('charter') ? true : false;
+
+      const response = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) {
+        const message = data?.message || 'Signup failed. Please try again.';
+        if (signupStatus) {
+          signupStatus.textContent = message;
+          signupStatus.classList.add('is-error');
+        }
+        return;
+      }
+
+      if (signupStatus) {
+        signupStatus.textContent = 'Request received. Check your email for next steps.';
+        signupStatus.classList.remove('is-error');
+      }
+      signupForm.reset();
+    } catch (error) {
+      if (signupStatus) {
+        signupStatus.textContent = 'Signup failed. Please try again.';
+        signupStatus.classList.add('is-error');
+      }
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Request access';
+      }
+    }
+  });
+}
+
+const choiceRoot = document.querySelector('[data-choice-root]');
+if (choiceRoot) {
+  const tabs = Array.from(choiceRoot.querySelectorAll('[data-choice-tab]'));
+  const panels = Array.from(choiceRoot.querySelectorAll('[data-choice-panel]'));
+  const links = Array.from(choiceRoot.querySelectorAll('[data-choice-link]'));
+  const curlField = choiceRoot.querySelector('[data-curl-field]');
+  const copyButton = choiceRoot.querySelector('[data-copy-curl]');
+  const curlStatus = choiceRoot.querySelector('[data-curl-status]');
+
+  const setChoice = (choice) => {
+    if (!choice) {
+      return;
+    }
+
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.choice === choice;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', String(isActive));
+    });
+
+    panels.forEach((panel) => {
+      const isActive = panel.dataset.choicePanel === choice;
+      panel.classList.toggle('is-active', isActive);
+      panel.setAttribute('aria-hidden', String(!isActive));
+    });
+
+    if (history.replaceState) {
+      history.replaceState(null, '', `#${choice}`);
+    }
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      setChoice(tab.dataset.choice);
+    });
+  });
+
+  links.forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      setChoice(link.dataset.choiceLink);
+    });
+  });
+
+  if (window.location.hash) {
+    const initialChoice = window.location.hash.replace('#', '').trim();
+    if (initialChoice) {
+      setChoice(initialChoice);
+    }
+  }
+
+  const setCurlStatus = (message, isError = false) => {
+    if (!curlStatus) {
+      return;
+    }
+    curlStatus.textContent = message;
+    curlStatus.classList.toggle('is-error', isError);
+  };
+
+  if (copyButton && curlField) {
+    copyButton.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(curlField.value);
+        } else {
+          curlField.select();
+          document.execCommand('copy');
+          curlField.setSelectionRange(0, 0);
+        }
+        setCurlStatus('Curl command copied.');
+      } catch (error) {
+        setCurlStatus('Copy failed. Select and copy manually.', true);
+      }
+    });
+  }
+}

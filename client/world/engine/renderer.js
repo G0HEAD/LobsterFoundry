@@ -278,7 +278,67 @@ class WorldRenderer {
     
     sortedAvatars.forEach(avatar => {
       avatar.render(ctx);
+      this.renderAvatarTaskBar(ctx, avatar, avatar.workTask, PALETTE.ORANGE, 1.1);
+      this.renderAvatarTaskBar(ctx, avatar, avatar.readTask, PALETTE.LAVENDER, 1.1);
+      this.renderAvatarReadIcon(ctx, avatar);
     });
+  }
+
+  renderAvatarTaskBar(ctx, avatar, task, color, yOffset = 1.1) {
+    if (!task) return;
+
+    const now = Date.now();
+    const progress = Math.min(1, Math.max(0, (now - task.start) / task.duration));
+    if (progress <= 0) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const barWidth = tile * 1.2;
+    const barHeight = Math.max(3, Math.round(tile * 0.16));
+    const x = avatar.x + tile * 0.5 - barWidth / 2;
+    const y = avatar.y + tile * yOffset + Math.ceil(tile * 0.1);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(x, y, barWidth, barHeight);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1, y + 1, Math.max(0, (barWidth - 2) * progress), Math.max(1, barHeight - 2));
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, barWidth, barHeight);
+    ctx.restore();
+  }
+
+  renderAvatarReadIcon(ctx, avatar) {
+    if (!avatar.readTask && avatar.state !== AVATAR_STATES.READING) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const width = Math.max(10, Math.round(tile * 0.6));
+    const height = Math.max(8, Math.round(tile * 0.4));
+    const bob = Math.sin(Date.now() / 220 + avatar.x * 0.02) * (tile * 0.04);
+    const x = avatar.x - width - Math.round(tile * 0.1);
+    const y = avatar.y + tile * 0.2 + bob;
+    const leftWidth = Math.round(width * 0.48);
+    const rightWidth = width - leftWidth - 1;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(196, 181, 253, 0.35)';
+    ctx.fillRect(x - 2, y - 2, width + 4, height + 4);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(x + 1, y + 1, width, height);
+
+    ctx.fillStyle = PALETTE.LAVENDER;
+    ctx.fillRect(x, y, leftWidth, height);
+
+    ctx.fillStyle = PALETTE.WHITE;
+    ctx.fillRect(x + leftWidth + 1, y + 1, Math.max(1, rightWidth - 1), Math.max(1, height - 2));
+
+    ctx.fillStyle = PALETTE.DARK_PURPLE;
+    ctx.fillRect(x + leftWidth, y, 1, height);
+
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, height);
+    ctx.restore();
   }
 
   /**
@@ -350,7 +410,71 @@ class WorldRenderer {
       case PARTICLE_TYPES.SPARK:
         ctx.fillRect(particle.x, particle.y, Math.ceil(2 * scale), Math.ceil(2 * scale));
         break;
-        
+
+      case PARTICLE_TYPES.COIN: {
+        const radius = Math.max(2, size * 0.7);
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.lineWidth = Math.max(1, Math.ceil(scale * 0.5));
+        ctx.stroke();
+        break;
+      }
+
+      case PARTICLE_TYPES.STAMP: {
+        const stampSize = Math.max(2, size * 1.1);
+        const half = stampSize / 2;
+        ctx.fillRect(particle.x - half, particle.y - half, stampSize, stampSize);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.lineWidth = Math.max(1, Math.ceil(scale * 0.5));
+        ctx.strokeRect(particle.x - half, particle.y - half, stampSize, stampSize);
+        ctx.beginPath();
+        ctx.moveTo(particle.x - half * 0.6, particle.y - half * 0.6);
+        ctx.lineTo(particle.x + half * 0.6, particle.y + half * 0.6);
+        ctx.moveTo(particle.x + half * 0.6, particle.y - half * 0.6);
+        ctx.lineTo(particle.x - half * 0.6, particle.y + half * 0.6);
+        ctx.stroke();
+        break;
+      }
+
+      case PARTICLE_TYPES.BALLOON: {
+        const radius = Math.max(3, size * 0.9);
+        ctx.beginPath();
+        ctx.ellipse(particle.x, particle.y, radius, radius * 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.ellipse(particle.x - radius * 0.3, particle.y - radius * 0.4, radius * 0.2, radius * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = Math.max(1, Math.ceil(scale * 0.4));
+        ctx.beginPath();
+        ctx.moveTo(particle.x, particle.y + radius * 1.1);
+        ctx.lineTo(particle.x, particle.y + radius * 2.1);
+        ctx.stroke();
+        break;
+      }
+
+      case PARTICLE_TYPES.PAPER: {
+        const width = Math.max(2, size * 1.5);
+        const height = Math.max(2, size * 1.05);
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate(particle.rotation || 0);
+        ctx.fillStyle = 'rgba(250, 245, 255, 0.9)';
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+        ctx.strokeStyle = 'rgba(80, 60, 120, 0.35)';
+        ctx.lineWidth = Math.max(1, Math.ceil(scale * 0.5));
+        ctx.strokeRect(-width / 2, -height / 2, width, height);
+        ctx.fillStyle = 'rgba(196, 181, 253, 0.5)';
+        ctx.fillRect(-width * 0.35, -height * 0.3, width * 0.7, Math.max(1, height * 0.15));
+        ctx.fillRect(-width * 0.35, -height * 0.05, width * 0.55, Math.max(1, height * 0.12));
+        break;
+      }
+      
       case PARTICLE_TYPES.SMOKE:
         ctx.globalAlpha = opacity * (particle.life / 1000);
         ctx.beginPath();
