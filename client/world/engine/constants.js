@@ -224,6 +224,7 @@ const PALETTE = {
   ORANGE: '#d27d2c',
   LIGHT_GRAY: '#8595a1',
   GREEN: '#6daa2c',
+  MINT: '#7fe2b3',
   PEACH: '#d2aa99',
   CYAN: '#6dc2ca',
   LAVENDER: '#c4b5fd',

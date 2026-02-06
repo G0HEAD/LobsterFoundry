@@ -333,10 +333,7 @@ class WorldApp {
         }
         
         if (avatar) {
-          // Trigger celebration
-          const offset = WORLD_CONFIG.TILE_SIZE / 2;
-          worldState.triggerCelebration(avatar.x + offset, avatar.y - offset, '+1 Token!');
-          avatar.performAction(WORLD_ACTIONS.CELEBRATE);
+          this.triggerMintEffect(avatar);
         }
         break;
       }
@@ -377,6 +374,28 @@ class WorldApp {
     }
     
     this.updateViewerCount();
+  }
+
+  triggerMintEffect(avatar) {
+    if (!avatar) return;
+
+    const tile = WORLD_CONFIG.TILE_SIZE;
+    const point = this.getAvatarEffectPoint(avatar, { x: 0.5, y: 0.35 });
+
+    worldState.triggerCelebration(point.x, point.y, '+1 Token!', {
+      colors: [PALETTE.MINT],
+      textColor: PALETTE.MINT
+    });
+
+    this.spawnParticleBurst(PARTICLE_TYPES.COIN, {
+      x: point.x,
+      y: point.y - tile * 0.05,
+      count: 7,
+      color: PALETTE.MINT,
+      life: 1200,
+      size: 2.8,
+      gravity: 0.08
+    });
   }
 
   /**

@@ -359,21 +359,27 @@ class WorldState {
   /**
    * Trigger celebration effect
    */
-  triggerCelebration(x, y, text = '') {
+  triggerCelebration(x, y, text = '', options = {}) {
+    const defaultColors = [PALETTE.YELLOW, PALETTE.ORANGE, PALETTE.CYAN, PALETTE.GREEN];
+    const colors = Array.isArray(options.colors) && options.colors.length
+      ? options.colors
+      : defaultColors;
+    const textColor = options.textColor ?? PALETTE.YELLOW;
+
     // Spawn multiple particles
     for (let i = 0; i < 20; i++) {
       this.spawnParticle(PARTICLE_TYPES.STAR, x, y, {
         vx: (Math.random() - 0.5) * 6,
         vy: -Math.random() * 5 - 2,
-        color: [PALETTE.YELLOW, PALETTE.ORANGE, PALETTE.CYAN, PALETTE.GREEN][Math.floor(Math.random() * 4)],
+        color: colors[Math.floor(Math.random() * colors.length)],
         life: 1500
       });
     }
-    
+
     if (text) {
-      this.spawnFloatingText(text, x, y - 10, PALETTE.YELLOW);
+      this.spawnFloatingText(text, x, y - 10, textColor);
     }
-    
+
     this.emit(WORLD_EVENTS.MINT_CELEBRATION, { x, y, text });
   }
 
